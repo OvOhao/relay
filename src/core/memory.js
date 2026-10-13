@@ -1,12 +1,12 @@
 'use strict';
 // The memory that survives between worker runs. Workers are separate Claude sessions that cannot
 // see the dispatcher's conversation, so continuity is built from four things, all kept outside
-// the user's repo under ~/.baton/projects/<project>/:
+// the user's repo under ~/.relay/projects/<project>/:
 //   threads.json  named worker sessions (resumed with --resume, even across accounts)
 //   ledger.jsonl  what every worker did here: summary, files, open issues
 //   lock.json     one worker per folder at a time (no two accounts editing the same files)
 //   queue/        tickets of the jobs waiting for that folder, served first come, first served
-//   runs/         live status for the Baton panel
+//   runs/         live status for the Relay panel
 
 const crypto = require('crypto');
 const fs = require('fs');
@@ -101,11 +101,11 @@ function ledgerText(cwd, { sinceMs = 0, excludeThread = '', maxChars = 6000 } = 
 }
 
 // ---- one worker per folder ----
-// The lock's pid is the long-lived Baton process of a whole Claude window, so "is the pid alive" alone would let a
+// The lock's pid is the long-lived Relay process of a whole Claude window, so "is the pid alive" alone would let a
 // dead or stuck run inside a living window block the folder for hours. The owner therefore refreshes `beat` every
 // few seconds while it holds the lock; a lock whose owner is gone or has stopped beating is free to take over.
 const alive = fslock.alive;
-const BEAT_MS = Number(process.env.BATON_LOCK_BEAT_MS) || 5000; // tests shorten it
+const BEAT_MS = Number(process.env.RELAY_LOCK_BEAT_MS) || 5000; // tests shorten it
 const STALE_MS = 45000;
 const heldLocks = new Map(); // token -> release(): every folder lock / queue ticket this process holds
 

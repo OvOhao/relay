@@ -4,15 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>Baton</title>
+  <title>Relay</title>
   <script>
-    // #m=1: the window really has Mica behind the page. #boot=1: play the launch intro (first time the window is seen).
+    // #m=mica / #m=vibrancy: the window really has a see-through material behind the page (Windows Mica, macOS
+    // vibrancy; #m=1 is the older name for Mica). #boot=1: play the launch intro (first time the window is seen).
     (function () {
       var d = document.documentElement, hash = location.hash;
-      if (/[#&]m=1\b/.test(hash)) d.dataset.material = 'mica';
+      var m = /[#&]m=(\w+)/.exec(hash);
+      if (m) d.dataset.material = m[1] === '1' ? 'mica' : m[1];
+      if (/Mac/.test(navigator.platform || '')) d.dataset.os = 'mac';
       if (/[#&]boot=1\b/.test(hash)) {
         if (!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) d.classList.add('booting');
-        try { history.replaceState(null, '', location.pathname + (d.dataset.material ? '#m=1' : '')); } catch (e) { /* a reload just skips it */ }
+        try { history.replaceState(null, '', location.pathname + (d.dataset.material ? '#m=' + d.dataset.material : '')); } catch (e) { /* a reload just skips it */ }
       }
     })();
   </script>
@@ -24,13 +27,13 @@
       background: #1f1e1d; color: #f6f1e7; cursor: default; user-select: none;
     }
     #boot .b-logo { width: 132px; height: 132px; overflow: visible; animation: b-settle 1300ms cubic-bezier(.2,.8,.2,1) both; }
-    #boot .b-ring { fill: none; stroke-width: 7.8; stroke-linecap: butt; stroke-dasharray: 1; stroke-dashoffset: 1; }
-    #boot .b-clay { stroke: #d97757; animation: b-draw 600ms cubic-bezier(.2,.8,.2,1) 80ms forwards; }
-    #boot .b-cream { stroke: #f6f1e7; animation: b-draw 600ms cubic-bezier(.2,.8,.2,1) 530ms forwards; }
-    #boot .b-weave { opacity: 0; animation: b-in 220ms cubic-bezier(.2,.8,.2,1) 1090ms forwards; }
+    #boot .b-ring { fill: none; stroke-width: 10; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1; stroke-dashoffset: 1; }
+    #boot .b-clay { stroke: #d97757; animation: b-draw 650ms cubic-bezier(.2,.8,.2,1) 80ms forwards; }
+    #boot .b-cream { stroke: #f6f1e7; animation: b-draw 300ms cubic-bezier(.2,.8,.2,1) 680ms forwards; }
+    #boot .b-weave { opacity: 0; animation: b-in 160ms cubic-bezier(.2,.8,.2,1) 920ms forwards; }
     #boot .b-glow { opacity: 0; animation: b-glow 1200ms cubic-bezier(.2,.8,.2,1) 250ms forwards; }
     #boot .b-word {
-      font: 600 22px/1 "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; letter-spacing: 0.5em; margin-right: -0.5em;
+      font: 600 22px/1 "Segoe UI Variable Display", "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, sans-serif; letter-spacing: 0.5em; margin-right: -0.5em;
       opacity: 0; animation: b-word 520ms cubic-bezier(.2,.8,.2,1) 1040ms forwards;
     }
     .boot-out #boot { animation: b-out 380ms cubic-bezier(.2,.8,.2,1) forwards; }
@@ -54,18 +57,12 @@
         </radialGradient>
       </defs>
       <circle class="b-glow" cx="50" cy="50" r="50" fill="url(#b-glow-g)"/>
-      <!-- both rings start at the top and run clockwise; the weave (clay over at the top crossing, cream over at
-           the bottom, each with a dark seam) settles in once both are drawn, as in build/icon.png -->
-      <path class="b-ring b-clay" pathLength="1" d="M38 28.5A21.5 21.5 0 1 1 38 71.5A21.5 21.5 0 1 1 38 28.5"/>
-      <path class="b-ring b-cream" pathLength="1" d="M62 28.5A21.5 21.5 0 1 1 62 71.5A21.5 21.5 0 1 1 62 28.5"/>
-      <g class="b-weave" fill="none" stroke-linecap="butt">
-        <path d="M42.47 28.97A21.5 21.5 0 0 1 55.82 37.98" stroke="#1f1e1d" stroke-width="10.6"/>
-        <path d="M42.47 28.97A21.5 21.5 0 0 1 55.82 37.98" stroke="#d97757" stroke-width="7.8"/>
-        <path d="M57.53 71.03A21.5 21.5 0 0 1 44.18 62.02" stroke="#1f1e1d" stroke-width="10.6"/>
-        <path d="M57.53 71.03A21.5 21.5 0 0 1 44.18 62.02" stroke="#f6f1e7" stroke-width="7.8"/>
-      </g>
+      <!-- the Relay mark (build/logo.svg): the R is drawn in one stroke, then the arrow it hands on follows -->
+      <path class="b-ring b-clay" pathLength="1" d="M33 74V27H53a12.5 12.5 0 0 1 0 25H33"/>
+      <path class="b-ring b-cream" pathLength="1" d="M55 59L70 74"/>
+      <path class="b-weave" d="M58 74H70V62" fill="none" stroke="#f6f1e7" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
-    <div class="b-word">Baton</div>
+    <div class="b-word">Relay</div>
   </div>
   <div class="app" id="app">
     <header class="titlebar" id="titlebar"></header>

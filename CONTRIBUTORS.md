@@ -1,6 +1,6 @@
 # Contributors
 
-Baton exists thanks to these people. 感谢以下贡献者。
+Relay is maintained by [OvOhao](https://github.com/OvOhao). It is based on [Baton](https://github.com/zhenggao-30/baton), which exists thanks to these people. Relay 基于 Baton 开发，感谢 Baton 的以下贡献者。
 
 <table>
   <tr>

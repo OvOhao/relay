@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// Baton's MCP server (stdio). Claude Code starts one per session; it gives the window's Claude three
+// Relay's MCP server (stdio). Claude Code starts one per session; it gives the window's Claude three
 // tools so it can hand big jobs to worker accounts. Newline-delimited JSON-RPC 2.0, no dependencies.
 // stdout carries protocol messages only: all logging goes to stderr.
 
@@ -16,9 +16,9 @@ const VERSION = require('../package.json').version;
 
 const TOOLS = [
   {
-    name: 'baton_run',
+    name: 'relay_run',
     description:
-      'Hand a substantial, self-contained job to a Baton worker account (a separate Claude login running the official Claude Code), so it uses that account\'s usage instead of this window\'s. ' +
+      'Hand a substantial, self-contained job to a Relay worker account (a separate Claude login running the official Claude Code), so it uses that account\'s usage instead of this window\'s. ' +
       'The worker CANNOT see this conversation: put everything it needs in `task` and `context`. ' +
       'Use a stable `thread` name per line of work: calling again with the same thread continues it and the worker remembers everything. ' +
       'Returns the worker\'s final report. If it returns NO_WORKER_AVAILABLE or BUSY, tell the user and then decide whether to do the work yourself.',
@@ -30,41 +30,41 @@ const TOOLS = [
         context: { type: 'string', description: 'Background from this conversation the worker needs: the user\'s goal in their words, decisions already made, constraints, relevant files, what has been tried.' },
         thread: { type: 'string', description: 'Short kebab-case name for this line of work, e.g. "auth-refactor". Reuse it to continue; omit for a one-off.' },
         read_only: { type: 'boolean', description: 'True for investigation or review that must not change any file.' },
-        account: { type: 'string', description: 'Optional: run on this worker account (its e-mail or name as baton_status lists it), e.g. to run two jobs on two different accounts at the same time. Omit to let Baton pick the least busy worker.' },
+        account: { type: 'string', description: 'Optional: run on this worker account (its e-mail or name as relay_status lists it), e.g. to run two jobs on two different accounts at the same time. Omit to let Relay pick the least busy worker.' },
         model: { type: 'string', description: 'Optional model for the worker, e.g. "haiku", "sonnet", "opus" or a full id such as "claude-haiku-5-5". Omit to use the worker account\'s default. Use a smaller model for mechanical work to save usage.' },
-        title: { type: 'string', description: 'A 3-8 word label saying what this job is, shown in Baton\'s panel, e.g. "Build promo website". Max 60 characters.' },
+        title: { type: 'string', description: 'A 3-8 word label saying what this job is, shown in Relay\'s panel, e.g. "Build promo website". Max 60 characters.' },
       },
       required: ['task', 'cwd'],
     },
   },
   {
-    name: 'baton_status',
-    description: 'Show Baton\'s accounts (which one is this window\'s leader, which are workers, how much of their 5-hour and weekly usage is used, who is limited) and, if `cwd` is given, the worker threads in that project.',
+    name: 'relay_status',
+    description: 'Show Relay\'s accounts (which one is this window\'s leader, which are workers, how much of their 5-hour and weekly usage is used, who is limited) and, if `cwd` is given, the worker threads in that project.',
     inputSchema: { type: 'object', properties: { cwd: { type: 'string', description: 'Optional absolute project folder.' } } },
   },
   {
-    name: 'baton_ledger',
-    description: 'Read the project ledger: everything Baton workers have done in a project folder (summaries, files touched, open issues). Use it to re-orient after your own context was compacted or in a new conversation.',
+    name: 'relay_ledger',
+    description: 'Read the project ledger: everything Relay workers have done in a project folder (summaries, files touched, open issues). Use it to re-orient after your own context was compacted or in a new conversation.',
     inputSchema: { type: 'object', properties: { cwd: { type: 'string', description: 'Absolute project folder.' } }, required: ['cwd'] },
   },
 ];
 
-const log = (...a) => process.stderr.write(`[baton-mcp] ${a.join(' ')}\n`);
+const log = (...a) => process.stderr.write(`[relay-mcp] ${a.join(' ')}\n`);
 const send = (msg) => process.stdout.write(`${JSON.stringify(msg)}\n`);
 
-// Tell the running Baton who this window is signed in as (the desktop app puts the e-mail, not a secret,
-// in the session environment). That is how Baton notices the leader changed when you switch accounts.
+// Tell the running Relay who this window is signed in as (the desktop app puts the e-mail, not a secret,
+// in the session environment). That is how Relay notices the leader changed when you switch accounts.
 function reportIdentity() {
   // An unexpanded "${VAR}" placeholder (the variable is not set outside the desktop app) is not an identity.
   const real = (v) => (v && !String(v).includes('${') ? String(v) : '');
   const email = real(process.env.CLAUDE_CODE_USER_EMAIL);
-  if (!email || process.env.BATON_TAKEOVER) return;
+  if (!email || process.env.RELAY_TAKEOVER) return;
   try {
     const { port, token } = JSON.parse(fs.readFileSync(path.join(store.home(), 'connect.json'), 'utf8'));
-    const req = http.request({ host: '127.0.0.1', port, path: '/ident', method: 'POST', timeout: 3000, headers: { 'x-baton-token': token, 'content-type': 'application/json' } });
+    const req = http.request({ host: '127.0.0.1', port, path: '/ident', method: 'POST', timeout: 3000, headers: { 'x-relay-token': token, 'content-type': 'application/json' } });
     req.on('error', () => {});
     req.end(JSON.stringify({ email, uuid: real(process.env.CLAUDE_CODE_ACCOUNT_UUID), entrypoint: real(process.env.CLAUDE_CODE_ENTRYPOINT) }));
-  } catch { /* Baton is not running: nothing to tell */ }
+  } catch { /* Relay is not running: nothing to tell */ }
 }
 
 // Jobs this window is running, by JSON-RPC request id: a cancel or the window closing stops exactly these.
@@ -72,14 +72,14 @@ const inflight = new Map(); // id -> { controller, done }
 
 async function callTool(name, args, progressToken, signal) {
   reportIdentity();
-  if (name === 'baton_status') return { text: statusText(args.cwd) };
-  if (name === 'baton_ledger') {
+  if (name === 'relay_status') return { text: statusText(args.cwd) };
+  if (name === 'relay_ledger') {
     if (!args.cwd) return { text: 'cwd is required.', isError: true };
     const text = memory.ledgerText(args.cwd, { maxChars: 12000 });
     const threads = Object.keys(memory.listThreads(args.cwd));
-    return { text: text ? `Threads: ${threads.join(', ') || '(none)'}\n\n${text}` : 'The ledger for this project is empty: no Baton worker has run here yet.' };
+    return { text: text ? `Threads: ${threads.join(', ') || '(none)'}\n\n${text}` : 'The ledger for this project is empty: no Relay worker has run here yet.' };
   }
-  if (name === 'baton_run') {
+  if (name === 'relay_run') {
     let last = 0;
     let n = 0;
     const out = await runWorker({
@@ -105,7 +105,7 @@ async function handle(msg) {
   switch (method) {
     case 'initialize':
       reportIdentity();
-      return reply({ protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'baton', version: VERSION } });
+      return reply({ protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'relay', version: VERSION } });
     case 'ping':
       return reply({});
     case 'tools/list':
@@ -120,7 +120,7 @@ async function handle(msg) {
           return reply({ content: [{ type: 'text', text: r.text }], isError: !!r.isError });
         } catch (e) {
           log('tool error:', e.stack || e.message);
-          return reply({ content: [{ type: 'text', text: `Baton error: ${e.message}` }], isError: true });
+          return reply({ content: [{ type: 'text', text: `Relay error: ${e.message}` }], isError: true });
         } finally {
           if (inflight.get(id) === job) inflight.delete(id);
         }
@@ -165,7 +165,7 @@ async function shutdown(code) {
 rl.on('close', () => shutdown(0));
 // The last safety net: a stray error (a status file another process held open, a progress message to a window
 // that just closed, ...) is logged and the tool keeps serving. Dying here would drop every job this window runs
-// and the window would show Baton as disconnected.
+// and the window would show Relay as disconnected.
 process.on('uncaughtException', (e) => log('uncaught exception (kept running):', (e && e.stack) || e));
 process.on('unhandledRejection', (e) => log('unhandled rejection (kept running):', (e && e.stack) || e));
 process.on('SIGTERM', () => shutdown(143));

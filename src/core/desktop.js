@@ -1,5 +1,5 @@
 'use strict';
-// Which account is the Claude desktop app signed in to, as far as Baton can tell from outside?
+// Which account is the Claude desktop app signed in to, as far as Relay can tell from outside?
 //
 // The app keeps each Code session's metadata under  claude-code-sessions/<account-uuid>/<organisation-uuid>/,
 // so the account folder holding the most recent session is the one that was last in use. Only folder names and
@@ -12,10 +12,10 @@ const os = require('os');
 const path = require('path');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ttl = () => (process.env.BATON_DESKTOP_TTL !== undefined ? Number(process.env.BATON_DESKTOP_TTL) : 3000); // tests set 0
+const ttl = () => (process.env.RELAY_DESKTOP_TTL !== undefined ? Number(process.env.RELAY_DESKTOP_TTL) : 3000); // tests set 0
 
 function roots() {
-  if (process.env.BATON_DESKTOP_DIR) return [process.env.BATON_DESKTOP_DIR]; // tests
+  if (process.env.RELAY_DESKTOP_DIR) return [process.env.RELAY_DESKTOP_DIR]; // tests
   const h = os.homedir();
   return [
     process.env.APPDATA && path.join(process.env.APPDATA, 'Claude', 'claude-code-sessions'),

@@ -14,18 +14,18 @@ const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { retu
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const deadPid = () => spawnSync(process.execPath, ['-e', '0']).pid; // a process that has already exited
 
-process.env.BATON_LOCK_BEAT_MS = '200'; // read when memory.js loads: watch heartbeats without waiting 5 s
+process.env.RELAY_LOCK_BEAT_MS = '200'; // read when memory.js loads: watch heartbeats without waiting 5 s
 
 function sandbox({ plan = {}, delay = 150, accounts = [['lead', { desktop: true }], ['w1', {}], ['w2', {}]] } = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'baton-lock-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-lock-'));
   const env = {
-    BATON_HOME: path.join(root, 'home'), BATON_HUB: path.join(root, 'hub'), FAKE_STATE: path.join(root, 'state'),
-    FAKE_PLAN: JSON.stringify(plan), FAKE_DELAY_MS: String(delay), BATON_CLAUDE_CMD: JSON.stringify([process.execPath, FAKE]),
-    BATON_TICK: '0.05', BATON_SLACK: '0',
+    RELAY_HOME: path.join(root, 'home'), RELAY_HUB: path.join(root, 'hub'), FAKE_STATE: path.join(root, 'state'),
+    FAKE_PLAN: JSON.stringify(plan), FAKE_DELAY_MS: String(delay), RELAY_CLAUDE_CMD: JSON.stringify([process.execPath, FAKE]),
+    RELAY_TICK: '0.05', RELAY_SLACK: '0',
   };
-  for (const d of [env.FAKE_STATE, env.BATON_HUB]) fs.mkdirSync(d, { recursive: true });
+  for (const d of [env.FAKE_STATE, env.RELAY_HUB]) fs.mkdirSync(d, { recursive: true });
   Object.assign(process.env, env);
-  delete process.env.BATON_TAKEOVER;
+  delete process.env.RELAY_TAKEOVER;
   const store = require('../src/core/store');
   store.save(accounts.map(([n, extra]) => ({ ...store.newAccount(n, path.join(root, 'home', 'accounts', n), `${n}@x.com`), ...extra })));
   const folder = (name) => { const d = path.join(root, name); fs.mkdirSync(d, { recursive: true }); return d; };
@@ -36,13 +36,13 @@ function sandbox({ plan = {}, delay = 150, accounts = [['lead', { desktop: true 
   return { root, env, store, folder, invocations };
 }
 
-const runFiles = (s) => { try { return fs.readdirSync(path.join(s.env.BATON_HOME, 'runs')); } catch { return []; } };
+const runFiles = (s) => { try { return fs.readdirSync(path.join(s.env.RELAY_HOME, 'runs')); } catch { return []; } };
 const tickets = (memory, cwd) => { try { return fs.readdirSync(path.join(memory.projectDir(cwd), 'queue')); } catch { return []; } };
 
 // ---- fslock ----
 
 test('fslock: four processes incrementing one counter 50 times each lose no update', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'baton-fslock-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-fslock-'));
   const file = path.join(root, 'counter');
   fs.writeFileSync(file, '0');
   const procs = Array.from({ length: 4 }, () => new Promise((resolve) => {
@@ -60,7 +60,7 @@ test('fslock: four processes incrementing one counter 50 times each lose no upda
 
 test('fslock: a lock left by a dead process is broken, and an exception never leaves the lock behind', () => {
   const { withFileLock } = require('../src/core/fslock');
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'baton-fslock-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-fslock-'));
   const file = path.join(root, 'thing');
   fs.writeFileSync(`${file}.lock`, JSON.stringify({ pid: deadPid(), token: 'x', at: Date.now() }));
   const t0 = Date.now();
@@ -82,7 +82,7 @@ test('store and memory writes leave no temp or lock files behind', () => {
   const cwd = s.folder('tidy');
   memory.putThread(cwd, 't', { title: 'x' });
   const leftovers = (dir) => fs.readdirSync(dir).filter((n) => /\.tmp$|\.lock$/.test(n));
-  assert.deepEqual(leftovers(s.env.BATON_HOME), []);
+  assert.deepEqual(leftovers(s.env.RELAY_HOME), []);
   assert.deepEqual(leftovers(memory.projectDir(cwd)), []);
   assert.equal(s.store.get('w1').n, 4);
 });
@@ -202,10 +202,10 @@ test('queue: a waiting job shows that it waits, can be cancelled, and gives up w
   assert.deepEqual(runFiles(s), [], 'its run file is gone');
   assert.equal(s.invocations().length, 0, 'no worker was started');
 
-  process.env.BATON_QUEUE_WAIT_SEC = '1';
+  process.env.RELAY_QUEUE_WAIT_SEC = '1';
   const t0 = Date.now();
   const busy = await runWorker({ task: 'another', cwd, thread: 'q2' });
-  delete process.env.BATON_QUEUE_WAIT_SEC;
+  delete process.env.RELAY_QUEUE_WAIT_SEC;
   assert.equal(busy.code, 'busy');
   assert.match(busy.text, /^BUSY: .*thread "holder"/);
   assert.ok(Date.now() - t0 >= 900, 'it waited first');

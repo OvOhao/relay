@@ -10,20 +10,20 @@ const FAKE = path.join(__dirname, 'fake-claude.js');
 const ROOT_SRC = path.join(__dirname, '..', 'src');
 
 function sandbox(plan, accounts) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'baton-test-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-test-'));
   Object.assign(process.env, {
-    BATON_HOME: path.join(root, 'home'),
-    BATON_HUB: path.join(root, 'hub'),
+    RELAY_HOME: path.join(root, 'home'),
+    RELAY_HUB: path.join(root, 'hub'),
     FAKE_STATE: path.join(root, 'state'),
     FAKE_PLAN: JSON.stringify(plan),
-    BATON_CLAUDE_CMD: JSON.stringify([process.execPath, FAKE]),
-    BATON_TICK: '0.05',
-    BATON_SLACK: '0',
+    RELAY_CLAUDE_CMD: JSON.stringify([process.execPath, FAKE]),
+    RELAY_TICK: '0.05',
+    RELAY_SLACK: '0',
   });
-  delete process.env.BATON_TAKEOVER;
+  delete process.env.RELAY_TAKEOVER;
   fs.mkdirSync(process.env.FAKE_STATE, { recursive: true });
   fs.mkdirSync(path.join(root, 'project'), { recursive: true });
-  fs.mkdirSync(process.env.BATON_HUB, { recursive: true });
+  fs.mkdirSync(process.env.RELAY_HUB, { recursive: true });
   const store = require(`${ROOT_SRC}/core/store`);
   accounts = accounts || [['lead', 'lead@x.com', { desktop: true }], ['w1', 'w1@x.com', {}], ['w2', 'w2@x.com', {}]];
   store.save(accounts.map(([n, email, extra]) => ({ ...store.newAccount(n, path.join(root, 'home', 'accounts', n), email), ...extra })));
@@ -123,9 +123,9 @@ test('worker runs: no workers, all workers limited, and a busy folder all answer
   s.store.save([{ ...s.store.newAccount('w9', path.join(s.root, 'home', 'accounts', 'w9'), 'w9@x.com') }]);
   const lock = memory.acquireLock(s.project, { thread: 'someone-else' });
   fs.writeFileSync(path.join(memory.projectDir(s.project), 'lock.json'), JSON.stringify({ pid: process.ppid, at: Date.now(), thread: 'someone-else' }));
-  process.env.BATON_QUEUE_WAIT_SEC = '1'; // a busy folder is now waited for; answer BUSY only after the wait
+  process.env.RELAY_QUEUE_WAIT_SEC = '1'; // a busy folder is now waited for; answer BUSY only after the wait
   const busy = await runWorker({ task: 'x', cwd: s.project });
-  delete process.env.BATON_QUEUE_WAIT_SEC;
+  delete process.env.RELAY_QUEUE_WAIT_SEC;
   assert.equal(busy.code, 'busy');
   assert.match(busy.text, /^BUSY/);
   lock.release && lock.release();
@@ -154,24 +154,24 @@ test('MCP server speaks the protocol and exposes the three tools', async () => {
   const m = mcpSession();
   try {
     const init = await m.call('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '0' } });
-    assert.equal(init.result.serverInfo.name, 'baton');
+    assert.equal(init.result.serverInfo.name, 'relay');
     assert.equal(init.result.protocolVersion, '2025-06-18');
     const list = await m.call('tools/list', {});
-    assert.deepEqual(list.result.tools.map((t) => t.name), ['baton_run', 'baton_status', 'baton_ledger']);
+    assert.deepEqual(list.result.tools.map((t) => t.name), ['relay_run', 'relay_status', 'relay_ledger']);
     assert.deepEqual(list.result.tools[0].inputSchema.required, ['task', 'cwd']);
 
-    const status = await m.call('tools/call', { name: 'baton_status', arguments: { cwd: s.project } });
+    const status = await m.call('tools/call', { name: 'relay_status', arguments: { cwd: s.project } });
     assert.match(status.result.content[0].text, /lead@x\.com \[LEADER/);
     assert.match(status.result.content[0].text, /w1@x\.com \[worker\]/);
 
-    const run = await m.call('tools/call', { name: 'baton_run', arguments: { task: 'do it', cwd: s.project, thread: 'demo' } });
+    const run = await m.call('tools/call', { name: 'relay_run', arguments: { task: 'do it', cwd: s.project, thread: 'demo' } });
     assert.equal(run.result.isError, false);
     assert.match(run.result.content[0].text, /worker w1@x\.com · model fake-model · thread "demo" finished/);
 
-    const ledger = await m.call('tools/call', { name: 'baton_ledger', arguments: { cwd: s.project } });
+    const ledger = await m.call('tools/call', { name: 'relay_ledger', arguments: { cwd: s.project } });
     assert.match(ledger.result.content[0].text, /thread "demo"/);
 
-    const bad = await m.call('tools/call', { name: 'baton_run', arguments: { task: 'x', cwd: 'relative/path' } });
+    const bad = await m.call('tools/call', { name: 'relay_run', arguments: { task: 'x', cwd: 'relative/path' } });
     assert.match(bad.result.content[0].text, /existing absolute folder/);
     assert.equal((await m.call('nope', {})).error.code, -32601);
   } finally {
@@ -179,7 +179,7 @@ test('MCP server speaks the protocol and exposes the three tools', async () => {
   }
 });
 
-test('connect: installs hooks, skill and tool; disconnect restores everything; remove deletes Baton data', async () => {
+test('connect: installs hooks, skill and tool; disconnect restores everything; remove deletes Relay data', async () => {
   const s = sandbox({});
   const connect = require(`${ROOT_SRC}/core/connect`);
   const settings = path.join(s.root, 'hub', 'settings.json');
@@ -192,24 +192,24 @@ test('connect: installs hooks, skill and tool; disconnect restores everything; r
   assert.equal(after.model, 'opus');
   assert.ok(after.hooks.StopFailure[0].matcher === 'rate_limit');
   assert.ok(after.hooks.SessionStart.length === 1, 'SessionStart reports who is signed in');
-  const mcp = JSON.parse(fs.readFileSync(path.join(s.root, 'hub', '.claude.json'), 'utf8')).mcpServers.baton;
+  const mcp = JSON.parse(fs.readFileSync(path.join(s.root, 'hub', '.claude.json'), 'utf8')).mcpServers.relay;
   assert.match(mcp.args[0], /mcp\.js$/);
-  assert.match(fs.readFileSync(path.join(s.root, 'hub', 'skills', 'baton', 'SKILL.md'), 'utf8'), /baton_run/);
+  assert.match(fs.readFileSync(path.join(s.root, 'hub', 'skills', 'relay', 'SKILL.md'), 'utf8'), /relay_run/);
   await connect.install(); // idempotent
   assert.equal(JSON.parse(fs.readFileSync(settings, 'utf8')).hooks.SessionStart.length, 1);
 
   const gone = await connect.uninstall();
   assert.equal(gone.all, false);
   assert.deepEqual(JSON.parse(fs.readFileSync(settings, 'utf8')), before, 'settings are exactly as the user left them');
-  assert.equal(fs.existsSync(path.join(s.root, 'hub', 'skills', 'baton')), false);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(s.root, 'hub', '.claude.json'), 'utf8')).mcpServers.baton, undefined);
+  assert.equal(fs.existsSync(path.join(s.root, 'hub', 'skills', 'relay')), false);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(s.root, 'hub', '.claude.json'), 'utf8')).mcpServers.relay, undefined);
 
   await connect.install();
-  fs.mkdirSync(path.join(process.env.BATON_HOME, 'accounts', 'w1'), { recursive: true });
+  fs.mkdirSync(path.join(process.env.RELAY_HOME, 'accounts', 'w1'), { recursive: true });
   await connect.removeAll({ logins: true });
-  assert.equal(fs.existsSync(process.env.BATON_HOME), false, 'every Baton folder is gone');
+  assert.equal(fs.existsSync(process.env.RELAY_HOME), false, 'every Relay folder is gone');
   assert.deepEqual(JSON.parse(fs.readFileSync(settings, 'utf8')), before);
-  assert.equal(fs.existsSync(`${settings}.baton-backup`), false);
+  assert.equal(fs.existsSync(`${settings}.relay-backup`), false);
 });
 
 test('remove: by default the wiring goes but saved sign-ins stay; only an explicit request deletes them', async () => {
@@ -219,7 +219,7 @@ test('remove: by default the wiring goes but saved sign-ins stay; only an explic
   const before = { model: 'opus' };
   fs.writeFileSync(settings, JSON.stringify(before));
   await connect.install();
-  const login = path.join(process.env.BATON_HOME, 'accounts', 'w1', '.credentials.json');
+  const login = path.join(process.env.RELAY_HOME, 'accounts', 'w1', '.credentials.json');
   fs.mkdirSync(path.dirname(login), { recursive: true });
   fs.writeFileSync(login, '{"stand-in":"for a saved sign-in"}');
 
@@ -229,12 +229,12 @@ test('remove: by default the wiring goes but saved sign-ins stay; only an explic
   assert.deepEqual(JSON.parse(fs.readFileSync(settings, 'utf8')), before, 'the user\'s settings are back as they were');
   assert.ok(fs.existsSync(login), 'the saved sign-in survived');
   assert.equal(s.store.load().length, 3, 'the account list survived');
-  assert.equal(fs.existsSync(path.join(process.env.BATON_HOME, 'connect.json')), false, 'only the wiring leftovers are cleared');
+  assert.equal(fs.existsSync(path.join(process.env.RELAY_HOME, 'connect.json')), false, 'only the wiring leftovers are cleared');
 
-  await connect.install(); // setting Baton up again needs no new sign-in
+  await connect.install(); // setting Relay up again needs no new sign-in
   assert.ok(fs.existsSync(login));
   await connect.removeAll({ logins: true });
-  assert.equal(fs.existsSync(process.env.BATON_HOME), false);
+  assert.equal(fs.existsSync(process.env.RELAY_HOME), false);
 });
 
 test('worker model: a request\'s model wins, else the account\'s own default, else none; odd names are refused', async () => {
@@ -271,7 +271,7 @@ test('worker run in a git project reports files changed by a shell command, not 
   }
 });
 
-test('workers start in a clean environment: no host variables leak in from the Claude session that called Baton', async () => {
+test('workers start in a clean environment: no host variables leak in from the Claude session that called Relay', async () => {
   const s = sandbox({ w1: ['ok'] });
   const dump = path.join(s.root, 'env.txt');
   const leaked = { ANTHROPIC_API_KEY: 'k', CLAUDE_CODE_OAUTH_TOKEN: 't', CLAUDE_CODE_SIMPLE: '1', CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH: '1', CLAUDE_CODE_USER_EMAIL: 'lead@x.com',
@@ -286,13 +286,13 @@ test('workers start in a clean environment: no host variables leak in from the C
       else assert.ok(!names.has(k), `${k} must not reach the worker`);
     }
     assert.ok(names.has('CLAUDE_CONFIG_DIR'), 'the worker is pointed at its own login folder');
-    assert.ok(names.has('BATON_TAKEOVER'), 'and marked so Baton\'s own hooks ignore it');
+    assert.ok(names.has('RELAY_TAKEOVER'), 'and marked so Relay\'s own hooks ignore it');
   } finally {
     for (const k of [...Object.keys(leaked), 'FAKE_ENV_DUMP']) delete process.env[k];
   }
 });
 
-test('baton_run lists title and model in its schema', async () => {
+test('relay_run lists title and model in its schema', async () => {
   sandbox({});
   const m = mcpSession();
   try {
@@ -310,7 +310,7 @@ test('job title: the dispatcher\'s title wins, else one is derived from the task
   const s = sandbox({ w1: ['ok', 'ok'] });
   const memory = require(`${ROOT_SRC}/core/memory`);
   const { runWorker, deriveTitle } = require(`${ROOT_SRC}/core/workers`);
-  assert.equal(deriveTitle('## Build a **promo** site for `Baton`. Then deploy it.\nMore detail'), 'Build a promo site for Baton.');
+  assert.equal(deriveTitle('## Build a **promo** site for `Relay`. Then deploy it.\nMore detail'), 'Build a promo site for Relay.');
   assert.equal(deriveTitle('\n\n  Fix   the   parser  '), 'Fix the parser');
   const long = deriveTitle('x'.repeat(200));
   assert.equal(long.length, 64);

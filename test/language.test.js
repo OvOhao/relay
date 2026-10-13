@@ -1,5 +1,5 @@
 'use strict';
-// The interface language is a setting: English unless the user picks Chinese. Runs in a throw-away BATON_HOME.
+// The interface language is a setting: English unless the user picks Chinese. Runs in a throw-away RELAY_HOME.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -9,16 +9,16 @@ const path = require('path');
 const SRC = path.join(__dirname, '..', 'src');
 
 function sandbox() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'baton-test-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-test-'));
   Object.assign(process.env, {
-    BATON_HOME: path.join(root, 'home'),
-    BATON_HUB: path.join(root, 'hub'),
-    BATON_DESKTOP_DIR: path.join(root, 'desktop-sessions'),
-    BATON_DESKTOP_TTL: '0',
+    RELAY_HOME: path.join(root, 'home'),
+    RELAY_HUB: path.join(root, 'hub'),
+    RELAY_DESKTOP_DIR: path.join(root, 'desktop-sessions'),
+    RELAY_DESKTOP_TTL: '0',
   });
-  delete process.env.BATON_TAKEOVER;
-  fs.mkdirSync(process.env.BATON_HUB, { recursive: true });
-  fs.mkdirSync(process.env.BATON_DESKTOP_DIR, { recursive: true });
+  delete process.env.RELAY_TAKEOVER;
+  fs.mkdirSync(process.env.RELAY_HUB, { recursive: true });
+  fs.mkdirSync(process.env.RELAY_DESKTOP_DIR, { recursive: true });
   return require(`${SRC}/core/store`);
 }
 

@@ -1,6 +1,6 @@
 'use strict';
-// Several Claude windows use Baton at the same time. None of them may be refused, stalled, lose its session or leave
-// a lock behind because of the others. Every "window" is its own OS process sharing one Baton home folder.
+// Several Claude windows use Relay at the same time. None of them may be refused, stalled, lose its session or leave
+// a lock behind because of the others. Every "window" is its own OS process sharing one Relay home folder.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -14,15 +14,15 @@ const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { retu
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function sandbox({ plan = {}, delay = 150, accounts = [['lead', { desktop: true }], ['w1', {}], ['w2', {}]] } = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'baton-conc-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-conc-'));
   const env = {
-    BATON_HOME: path.join(root, 'home'), BATON_HUB: path.join(root, 'hub'), FAKE_STATE: path.join(root, 'state'),
-    FAKE_PLAN: JSON.stringify(plan), FAKE_DELAY_MS: String(delay), BATON_CLAUDE_CMD: JSON.stringify([process.execPath, FAKE]),
-    BATON_TICK: '0.05', BATON_SLACK: '0',
+    RELAY_HOME: path.join(root, 'home'), RELAY_HUB: path.join(root, 'hub'), FAKE_STATE: path.join(root, 'state'),
+    FAKE_PLAN: JSON.stringify(plan), FAKE_DELAY_MS: String(delay), RELAY_CLAUDE_CMD: JSON.stringify([process.execPath, FAKE]),
+    RELAY_TICK: '0.05', RELAY_SLACK: '0',
   };
-  for (const d of [env.FAKE_STATE, env.BATON_HUB]) fs.mkdirSync(d, { recursive: true });
+  for (const d of [env.FAKE_STATE, env.RELAY_HUB]) fs.mkdirSync(d, { recursive: true });
   Object.assign(process.env, env);
-  delete process.env.BATON_TAKEOVER;
+  delete process.env.RELAY_TAKEOVER;
   const store = require('../src/core/store');
   store.save(accounts.map(([n, extra]) => ({ ...store.newAccount(n, path.join(root, 'home', 'accounts', n), `${n}@x.com`), ...extra })));
   const folder = (name) => { const d = path.join(root, name); fs.mkdirSync(d, { recursive: true }); return d; };
@@ -88,7 +88,7 @@ test('windows working in the SAME folder are queued, not refused', async () => {
   const res = await Promise.all(['a', 'b', 'c'].map((t) => windowProc(s, { mode: 'run', task: `job ${t}`, cwd, thread: t })));
   assert.deepEqual(res.map((r) => r.code), ['done', 'done', 'done'], `nobody gets BUSY: ${JSON.stringify(res)}`);
   assert.ok(Date.now() - t0 >= 3 * 3 * 200 * 0.8, 'they ran one after the other, not on top of each other');
-  const projects = path.join(s.env.BATON_HOME, 'projects');
+  const projects = path.join(s.env.RELAY_HOME, 'projects');
   const ledger = fs.readdirSync(projects).flatMap((d) => fs.readFileSync(path.join(projects, d, 'ledger.jsonl'), 'utf8').trim().split('\n'));
   assert.equal(ledger.length, 3, 'all three runs were recorded');
   const left = fs.readdirSync(projects).filter((d) => fs.existsSync(path.join(projects, d, 'lock.json')));
@@ -123,7 +123,7 @@ test('a stopped job keeps its session: the same thread resumes it later', async 
   assert.equal(inv[inv.length - 1].resume, th.sessionId, 'the second run resumed the saved session');
 });
 
-// ---- the Baton tool process that every Claude window starts (src/mcp.js) ----
+// ---- the Relay tool process that every Claude window starts (src/mcp.js) ----
 function mcp(s) {
   const c = spawn(process.execPath, [path.join(ROOT, 'src', 'mcp.js')], { cwd: ROOT, env: { ...process.env, ...s.env }, stdio: ['pipe', 'pipe', 'pipe'] });
   const waiting = new Map();
@@ -142,7 +142,7 @@ function mcp(s) {
   return { c, send, call, lastId: () => id, close: () => { try { c.stdin.end(); } catch { /* gone */ } } };
 }
 const fakePids = (s) => { try { return fs.readdirSync(path.join(s.env.FAKE_STATE, 'pids')).map(Number); } catch { return []; } };
-const lockFiles = (s) => { const root = path.join(s.env.BATON_HOME, 'projects'); try { return fs.readdirSync(root).filter((d) => fs.existsSync(path.join(root, d, 'lock.json'))); } catch { return []; } };
+const lockFiles = (s) => { const root = path.join(s.env.RELAY_HOME, 'projects'); try { return fs.readdirSync(root).filter((d) => fs.existsSync(path.join(root, d, 'lock.json'))); } catch { return []; } };
 const killAll = (pids) => pids.forEach((p) => { try { process.kill(p); } catch { /* gone */ } });
 const INIT = { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1' } };
 
@@ -151,7 +151,7 @@ test('closing a Claude window stops its worker and releases its folder', async (
   const cwd = s.folder('closing');
   const m = mcp(s);
   await m.call('initialize', INIT);
-  m.call('tools/call', { name: 'baton_run', arguments: { task: 'hangs forever', cwd, thread: 'x' } });
+  m.call('tools/call', { name: 'relay_run', arguments: { task: 'hangs forever', cwd, thread: 'x' } });
   for (let i = 0; i < 60 && !fakePids(s).length; i++) await sleep(100);
   assert.ok(fakePids(s).length, 'the worker started');
   assert.equal(lockFiles(s).length, 1, 'the folder is locked while it runs');
@@ -169,7 +169,7 @@ test('stopping a job from the window (cancel) stops its worker and frees the fol
   const cwd = s.folder('cancel');
   const m = mcp(s);
   await m.call('initialize', INIT);
-  m.call('tools/call', { name: 'baton_run', arguments: { task: 'hangs forever', cwd, thread: 'y' } });
+  m.call('tools/call', { name: 'relay_run', arguments: { task: 'hangs forever', cwd, thread: 'y' } });
   const requestId = m.lastId();
   for (let i = 0; i < 60 && !fakePids(s).length; i++) await sleep(100);
   assert.ok(fakePids(s).length, 'the worker started');
@@ -183,9 +183,9 @@ test('stopping a job from the window (cancel) stops its worker and frees the fol
   assert.deepEqual(locks, [], 'the folder lock is gone');
 });
 
-test('a stray error inside the Baton tool process does not take it down: the window stays connected', async () => {
+test('a stray error inside the Relay tool process does not take it down: the window stays connected', async () => {
   // This is what a status-file rename colliding with the panel's reader used to do: an uncaught exception ended the
-  // process, the window showed Baton as "disconnected" and every job of that window died with it.
+  // process, the window showed Relay as "disconnected" and every job of that window died with it.
   const s = sandbox();
   const c = spawn(process.execPath, ['--require', path.join(__dirname, 'helpers', 'boom.js'), path.join(ROOT, 'src', 'mcp.js')], { cwd: ROOT, env: { ...process.env, ...s.env }, stdio: ['pipe', 'pipe', 'pipe'] });
   let out = '', err = '', exited = null;

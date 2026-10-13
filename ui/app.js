@@ -1,18 +1,18 @@
 'use strict';
-// Baton's panel. The page is drawn by small render functions into three fixed regions (title bar, main view,
+// Relay's panel. The page is drawn by small render functions into three fixed regions (title bar, main view,
 // settings page) and patched in place by morph(), so focus, scroll and open menus survive every update.
 // Inside those regions, buttons carry data-act (handled by one delegated listener) instead of their own listeners.
 
 /* ---------- i18n ---------- */
 const T = {
   en: {
-    app: 'Baton', tabs: 'Sections', tab_overview: 'Overview', tab_accounts: 'Accounts',
+    app: 'Relay', tabs: 'Sections', tab_overview: 'Overview', tab_accounts: 'Accounts',
     watching: 'Watching', working_n: (n) => `Working · ${n}`, needs_setup: 'Setup needed',
     settings: 'Settings', open_settings: 'Open settings', back: 'Back',
     // overview
     this_window: 'This window', leader_tag: 'Leader', not_in_pool: 'Not in the pool',
-    leader_outside: 'Not needed for Baton to work. Add it only to see its usage here.', add_this: 'Add it',
-    leader_pending: 'Start a new session in the Claude app and Baton will recognise which account this window uses.',
+    leader_outside: 'Not needed for Relay to work. Add it only to see its usage here.', add_this: 'Add it',
+    leader_pending: 'Start a new session in the Claude app and Relay will recognise which account this window uses.',
     activity: 'Activity', recent: 'Recent', idle: 'Nothing running. Keep working in Claude as usual.',
     stop: 'Stop', starting: 'Starting…', continuing_on: (x) => `Continuing on ${x}`, takeover_tag: 'Takeover',
     waiting_until: (x) => `All accounts are recharging · continues ${x} ·`,
@@ -22,15 +22,15 @@ const T = {
     v_web: (x) => `Searching the web for ${x}`, v_plan: () => 'Updating the plan', v_agent: (x) => `Delegating ${x}`, v_use: (x) => `Using ${x}`,
     // setup
     get_started: 'Get started', setup_progress: (n) => `${n} of 3 done`,
-    s1: 'Add the Claude accounts you own', s1_sub: 'Sign in to each one once. Baton keeps them separate from your main Claude Code login.',
-    s1_cli_missing: 'No sign-in found in the command-line Claude Code. The Claude desktop app keeps its own sign-in inside the app, which Baton cannot read: add your other accounts here.',
+    s1: 'Add the Claude accounts you own', s1_sub: 'Sign in to each one once. Relay keeps them separate from your main Claude Code login.',
+    s1_cli_missing: 'No sign-in found in the command-line Claude Code. The Claude desktop app keeps its own sign-in inside the app, which Relay cannot read: add your other accounts here.',
     s2: 'Which account is this Claude window signed in to?',
     s2_known: (e) => `This window is signed in as ${e}.`,
     s2_known_pool: 'It is in the pool and acts as the leader.', s2_known_outside: 'It does not need to be added: it plans and talks to you while your other accounts do the heavy work.',
-    s2_pending: 'Claude desktop app found. Connect below, then start a new session in the app: Baton recognises the account by itself.',
-    s2_none: 'No Claude desktop app sign-in found yet. After you connect and start a session, Baton recognises the account by itself.',
-    s3: 'Connect to Claude Code', s3_sub: 'Adds two hooks, one tool and one skill to Claude Code (your settings are backed up first). Settings › Remove Baton undoes all of it.',
-    connect: 'Connect', start_login: 'Start Baton when I sign in to Windows',
+    s2_pending: 'Claude desktop app found. Connect below, then start a new session in the app: Relay recognises the account by itself.',
+    s2_none: 'No Claude desktop app sign-in found yet. After you connect and start a session, Relay recognises the account by itself.',
+    s3: 'Connect to Claude Code', s3_sub: 'Adds two hooks, one tool and one skill to Claude Code (your settings are backed up first). Settings › Remove Relay undoes all of it.',
+    connect: 'Connect', start_login: 'Start Relay when I sign in to Windows',
     use_current: 'Use my current login', add_account: 'Add account',
     // accounts
     accounts: 'Accounts', refresh_usage: 'Refresh usage', more_actions: (x) => `More actions for ${x}`,
@@ -40,8 +40,9 @@ const T = {
     confirm_remove_title: 'Remove this account?', confirm_remove: (x) => `${x} will be removed and its saved sign-in on this computer deleted.`,
     usage_5h: '5h', usage_wk: 'Week', resets_at: (x) => `resets ${x}`,
     usage_reading: 'Reading usage…', usage_unavailable: 'Usage not available yet', usage_updating: 'Updating…',
+    usage_failed: 'Could not read usage', usage_from: 'numbers from\u00a0', usage_from_post: '', usage_old: 'numbers are old',
     updated_pre: 'Updated ', updated_post: '', age_now: 'just now', age_s: (s) => `${s}s ago`, age_m: (m) => `${m} min ago`, age_h: (h) => `${h} h ago`, age_d: (d) => (d === 1 ? 'yesterday' : `${d} days ago`),
-    model_aria: (x) => `Model: ${x}. Change`, model_tip: 'The model this account uses when Baton runs work on it. A model named in a request wins over this.',
+    model_aria: (x) => `Model: ${x}. Change`, model_tip: 'The model this account uses when Relay runs work on it. A model named in a request wins over this.',
     model_default: 'Account default', model_haiku: 'Haiku', model_sonnet: 'Sonnet', model_opus: 'Opus', model_custom: 'Other…',
     model_haiku_d: 'Light, saves usage', model_sonnet_d: 'Balanced', model_opus_d: 'Strongest',
     model_custom_title: 'Choose a model', model_custom_sub: 'An alias (haiku, sonnet, opus) or a full model id such as claude-haiku-5-5. Leave empty for the account default.',
@@ -51,15 +52,15 @@ const T = {
     perm_acceptEdits: 'Edit files', perm_acceptEdits_d: 'Changes files in the project. Shell commands are not run.',
     perm_bypassPermissions: 'Do everything', perm_bypassPermissions_d: 'Also runs commands without asking. Only if you trust the projects.',
     perm_plan: 'Read only', perm_plan_d: 'Reads and plans, changes nothing.',
-    set_startup: 'Start with Windows', set_startup_d: 'Baton waits quietly in the tray.',
+    set_startup: 'Start with Windows', set_startup_d: 'Relay waits quietly in the tray.',
     set_conn: 'Connection', connected: 'Connected to Claude Code', not_connected: 'Not connected', disconnect: 'Disconnect',
-    about: 'About', about_text: 'Baton is an independent tool, not affiliated with Anthropic.', replay_intro: 'Replay intro',
-    danger: 'Danger zone', remove_all: 'Remove Baton…', remove_all_d: 'Take Baton out of Claude Code and restore your settings.',
-    remove_all_title: 'Remove Baton?',
+    about: 'About', about_text: 'Relay is an independent tool, not affiliated with Anthropic. Based on Baton by ZhengGao-30 (MIT).', replay_intro: 'Replay intro',
+    danger: 'Danger zone', remove_all: 'Remove Relay…', remove_all_d: 'Take Relay out of Claude Code and restore your settings.',
+    remove_all_title: 'Remove Relay?',
     remove_all_confirm: 'Its hooks, tool and skill are removed and your own Claude Code settings go back to how they were. Your saved account sign-ins are kept unless you tick the box below.',
     remove_logins: 'Also delete the saved account sign-ins (you would have to sign in to each account again)',
-    removed_done: 'Baton was removed. You can close and uninstall the app now.',
-    removed_kept: 'Baton was removed from Claude Code. Your account sign-ins are still saved, so setting Baton up again will not ask you to sign in.',
+    removed_done: 'Relay was removed. You can close and uninstall the app now.',
+    removed_kept: 'Relay was removed from Claude Code. Your account sign-ins are still saved, so setting Relay up again will not ask you to sign in.',
     // dialogs
     email: 'Email', email_hint: 'Used to pre-fill the sign-in page. Optional.', cancel: 'Cancel', continue: 'Continue', close: 'Close', save: 'Save',
     add_title: 'Add an account', add_sub: 'A browser window opens just for this account.',
@@ -68,19 +69,20 @@ const T = {
     open_again: 'Open again', copy_link: 'Copy link', copied: 'Link copied',
     code_title: 'Paste the code', code_sub: 'The browser page shows a code after you sign in. Paste it here.', code_label: 'Code', submit: 'Submit',
     login_done: 'Signed in', login_failed: 'Sign-in did not finish', try_again: 'Try again',
+    conflict_clauth: 'The clauth plugin is on. It deletes the sign-ins of Relay’s accounts whenever a Claude Code session starts. Turn it off in Claude Code’s plugin settings to keep them.',
     no_claude: 'Claude Code was not found on this computer.', get_claude: 'Install Claude Code',
-    request_failed: (n) => `Request failed (${n})`, unreachable: (m) => `Could not reach Baton: ${m}`,
+    request_failed: (n) => `Request failed (${n})`, unreachable: (m) => `Could not reach Relay: ${m}`,
     n_leader: (p) => `Leader changed: this window now uses ${p.to || p.outside}`,
     n_done: (p) => `“${p.job.project}” finished on ${p.job.account || 'another account'}`,
     n_failed: (p) => `“${p.job.project}” could not be finished`, n_needs_login: (p) => `${p.account} needs to sign in again`,
   },
   zh: {
-    app: 'Baton', tabs: '分区', tab_overview: '概览', tab_accounts: '账号',
+    app: 'Relay', tabs: '分区', tab_overview: '概览', tab_accounts: '账号',
     watching: '守候中', working_n: (n) => `工作中 · ${n}`, needs_setup: '需要设置',
     settings: '设置', open_settings: '打开设置', back: '返回',
     this_window: '本窗口', leader_tag: '领队', not_in_pool: '不在号池',
-    leader_outside: 'Baton 不需要它也能工作。想在这里看它的额度时再加入号池。', add_this: '加入号池',
-    leader_pending: '在 Claude App 里新开一个会话，Baton 就会认出这个窗口用的是哪个账号。',
+    leader_outside: 'Relay 不需要它也能工作。想在这里看它的额度时再加入号池。', add_this: '加入号池',
+    leader_pending: '在 Claude App 里新开一个会话，Relay 就会认出这个窗口用的是哪个账号。',
     activity: '动态', recent: '最近', idle: '暂时没有任务，照常在 Claude 里工作就行。',
     stop: '停止', starting: '正在启动…', continuing_on: (x) => `正在 ${x} 上继续`, takeover_tag: '接管',
     waiting_until: (x) => `所有账号都在恢复额度 · ${x} 自动继续 ·`,
@@ -90,14 +92,14 @@ const T = {
     v_web: (x) => `正在网上搜索 ${x}`, v_plan: () => '正在更新计划', v_agent: (x) => `正在委派 ${x}`, v_use: (x) => `正在使用 ${x}`,
     get_started: '开始设置', setup_progress: (n) => `已完成 ${n}/3`,
     s1: '添加你拥有的 Claude 账号', s1_sub: '每个账号登录一次即可，和你平时的 Claude Code 登录互不干扰。',
-    s1_cli_missing: '命令行版 Claude Code 里没有登录。Claude 桌面 App 的登录保存在 App 内部，Baton 读不到也不会去读：请在这里添加你的其他账号。',
+    s1_cli_missing: '命令行版 Claude Code 里没有登录。Claude 桌面 App 的登录保存在 App 内部，Relay 读不到也不会去读：请在这里添加你的其他账号。',
     s2: '这个 Claude 窗口登录的是哪个账号？',
     s2_known: (e) => `这个窗口登录的是 ${e}。`,
     s2_known_pool: '它在号池里，作为领队使用。', s2_known_outside: '不需要添加：它负责规划并和你对话，重活交给你的其他账号。',
-    s2_pending: '已检测到 Claude 桌面 App 的登录。先在下面点“连接”，然后在 App 里新开一个会话，Baton 会自动认出是哪个账号。',
-    s2_none: '暂未发现 Claude 桌面 App 的登录。连接之后开始一个会话，Baton 会自动认出账号。',
-    s3: '连接 Claude Code', s3_sub: '给 Claude Code 加两条钩子、一个工具和一个技能（会先备份你的设置）。在 设置 › 移除 Baton 里可全部撤销。',
-    connect: '连接', start_login: '登录 Windows 时自动启动 Baton',
+    s2_pending: '已检测到 Claude 桌面 App 的登录。先在下面点“连接”，然后在 App 里新开一个会话，Relay 会自动认出是哪个账号。',
+    s2_none: '暂未发现 Claude 桌面 App 的登录。连接之后开始一个会话，Relay 会自动认出账号。',
+    s3: '连接 Claude Code', s3_sub: '给 Claude Code 加两条钩子、一个工具和一个技能（会先备份你的设置）。在 设置 › 移除 Relay 里可全部撤销。',
+    connect: '连接', start_login: '登录 Windows 时自动启动 Relay',
     use_current: '使用当前登录', add_account: '添加账号',
     accounts: '账号', refresh_usage: '刷新额度', more_actions: (x) => `${x} 的更多操作`,
     ready: '就绪', working: '正在工作', limited: '额度用完', back_in_pre: '', back_in_post: ' 后恢复',
@@ -106,8 +108,9 @@ const T = {
     confirm_remove_title: '移除这个账号？', confirm_remove: (x) => `将移除 ${x}，并删除本机上保存的登录信息。`,
     usage_5h: '5小时', usage_wk: '本周', resets_at: (x) => `${x} 恢复`,
     usage_reading: '读取额度中…', usage_unavailable: '额度暂时读不到', usage_updating: '更新中…',
+    usage_failed: '额度读取失败', usage_from: '显示的是', usage_from_post: '的数据', usage_old: '显示的是旧数据',
     updated_pre: '', updated_post: '更新', age_now: '刚刚', age_s: (s) => `${s} 秒前`, age_m: (m) => `${m} 分钟前`, age_h: (h) => `${h} 小时前`, age_d: (d) => (d === 1 ? '昨天' : `${d} 天前`),
-    model_aria: (x) => `模型：${x}。点击更改`, model_tip: 'Baton 在这个账号上干活时用的模型。请求里单独指定了模型时，以请求为准。',
+    model_aria: (x) => `模型：${x}。点击更改`, model_tip: 'Relay 在这个账号上干活时用的模型。请求里单独指定了模型时，以请求为准。',
     model_default: '账号默认', model_haiku: 'Haiku', model_sonnet: 'Sonnet', model_opus: 'Opus', model_custom: '其他…',
     model_haiku_d: '轻量，省额度', model_sonnet_d: '均衡', model_opus_d: '最强',
     model_custom_title: '选择模型', model_custom_sub: '填别名（haiku、sonnet、opus）或完整模型 ID，比如 claude-haiku-5-5。留空表示账号默认。',
@@ -116,15 +119,15 @@ const T = {
     perm_acceptEdits: '修改文件', perm_acceptEdits_d: '可修改项目内的文件，不执行命令。',
     perm_bypassPermissions: '完全放手', perm_bypassPermissions_d: '同时自动执行命令，不再询问。仅当你信任这些项目时使用。',
     perm_plan: '只读', perm_plan_d: '只阅读和规划，不改动任何文件。',
-    set_startup: '开机时启动', set_startup_d: 'Baton 会安静地待在托盘里。',
+    set_startup: '开机时启动', set_startup_d: 'Relay 会安静地待在托盘里。',
     set_conn: '连接', connected: '已连接 Claude Code', not_connected: '未连接', disconnect: '断开',
-    about: '关于', about_text: 'Baton 是独立工具，与 Anthropic 无关联。', replay_intro: '重播开场动画',
-    danger: '危险操作', remove_all: '移除 Baton…', remove_all_d: '把 Baton 从 Claude Code 里拿掉，并恢复你的设置。',
-    remove_all_title: '移除 Baton？',
+    about: '关于', about_text: 'Relay 是独立工具，与 Anthropic 无关联。基于 ZhengGao-30 的 Baton（MIT 许可）。', replay_intro: '重播开场动画',
+    danger: '危险操作', remove_all: '移除 Relay…', remove_all_d: '把 Relay 从 Claude Code 里拿掉，并恢复你的设置。',
+    remove_all_title: '移除 Relay？',
     remove_all_confirm: '它加的钩子、工具和技能会被移除，你自己的 Claude Code 设置恢复原样。已保存的账号登录会保留，除非你勾选下面的选项。',
     remove_logins: '同时删除已保存的账号登录（之后每个账号都要重新登录）',
-    removed_done: 'Baton 已移除，现在可以关闭并卸载这个应用了。',
-    removed_kept: 'Baton 已从 Claude Code 里移除。你的账号登录仍然保留，之后重新设置 Baton 不用再登录。',
+    removed_done: 'Relay 已移除，现在可以关闭并卸载这个应用了。',
+    removed_kept: 'Relay 已从 Claude Code 里移除。你的账号登录仍然保留，之后重新设置 Relay 不用再登录。',
     email: '邮箱', email_hint: '用于预填登录页面，可不填。', cancel: '取消', continue: '继续', close: '关闭', save: '保存',
     add_title: '添加账号', add_sub: '会为这个账号单独打开一个浏览器窗口。',
     login_title: '完成登录', login_waiting: (x) => `已为 ${x} 打开浏览器窗口。请在其中完成登录，这里会自动继续。`,
@@ -132,16 +135,31 @@ const T = {
     open_again: '重新打开', copy_link: '复制链接', copied: '链接已复制',
     code_title: '粘贴代码', code_sub: '登录后浏览器页面会显示一段代码，请粘贴到这里。', code_label: '代码', submit: '提交',
     login_done: '登录成功', login_failed: '登录未完成', try_again: '重试',
+    conflict_clauth: 'clauth 插件已启用。它会在每次启动 Claude Code 会话时删掉 Relay 账号的登录。要保留登录，请在 Claude Code 的插件设置里停用它。',
     no_claude: '这台电脑上没有找到 Claude Code。', get_claude: '安装 Claude Code',
-    request_failed: (n) => `请求失败（${n}）`, unreachable: (m) => `无法连接 Baton：${m}`,
+    request_failed: (n) => `请求失败（${n}）`, unreachable: (m) => `无法连接 Relay：${m}`,
     n_leader: (p) => `领队已切换：这个窗口现在用的是 ${p.to || p.outside}`,
     n_done: (p) => `“${p.job.project}”已完成`,
     n_failed: (p) => `“${p.job.project}”未能完成`, n_needs_login: (p) => `${p.account} 需要重新登录`,
   },
 };
 let LANG = 'en';
+// macOS words where the Windows ones would be wrong: the menu bar instead of the tray, "this Mac" instead of Windows.
+const MAC = {
+  en: {
+    start_login: 'Open Relay when I log in to this Mac', set_startup: 'Open at login', set_startup_d: 'Relay waits quietly in the menu bar.',
+    set_panel: 'Panel', set_pin: 'Keep panel open', set_pin_d: 'Otherwise the panel tucks itself away when you click elsewhere.',
+    removed_done: 'Relay was removed. You can quit it and move it to the Trash now.',
+  },
+  zh: {
+    start_login: '登录这台 Mac 时自动打开 Relay', set_startup: '登录时打开', set_startup_d: 'Relay 会安静地待在菜单栏里。',
+    set_panel: '面板', set_pin: '保持面板打开', set_pin_d: '不勾选时，点击别处面板会自动收起。',
+    removed_done: 'Relay 已移除，现在可以退出它并移到废纸篓。',
+  },
+};
 const t = (k, ...a) => {
-  const v = T[LANG][k] ?? T.en[k] ?? k;
+  const mac = S.platform === 'darwin' ? (MAC[LANG][k] ?? MAC.en[k]) : undefined;
+  const v = mac ?? T[LANG][k] ?? T.en[k] ?? k;
   return typeof v === 'function' ? v(...a) : v;
 };
 function setLang(l) {
@@ -186,10 +204,11 @@ function icon(name, cls = 'ic') {
 }
 function markSvg() {
   const s = document.createElementNS(SVGNS, 'svg');
-  s.setAttribute('viewBox', '0 0 32 32');
+  s.setAttribute('viewBox', '24 20 54 60');
   s.setAttribute('class', 'mark');
   s.setAttribute('aria-hidden', 'true');
-  s.innerHTML = '<circle cx="12" cy="16" r="8" fill="none" stroke="var(--clay)" stroke-width="2.6"/><circle cx="20" cy="16" r="8" fill="none" stroke="currentColor" stroke-width="2.6"/>';
+  // the Relay mark (build/logo.svg): an R whose leg is handed on as a forward arrow
+  s.innerHTML = '<g fill="none" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><path d="M33 74V27H53a12.5 12.5 0 0 1 0 25H33" stroke="var(--clay)"/><path d="M55 59L70 74M58 74H70V62" stroke="currentColor"/></g>';
   return s;
 }
 // h(tag, props, ...children). `on*` props add listeners: use them only in dialogs and menus, which are not morphed.
@@ -287,10 +306,10 @@ const guard = (fn) => async (...a) => { try { return await fn(...a); } catch (e)
 const S = {
   accounts: [], jobs: { active: [], recent: [] }, runs: [], connect: { all: false }, leader: null,
   desktop: { detected: false, pending: false }, cli: { loggedIn: false, checked: false }, settings: {},
-  login: null, claudeProblem: null, canAutoStart: false,
+  login: null, claudeProblem: null, canAutoStart: false, platform: '',
   tab: 'overview', view: 'main', autoStart: null, dirty: false, scroll: {}, recent: [], manual: {}, tabAnim: null,
 };
-try { if (localStorage.getItem('baton.tab') === 'accounts') S.tab = 'accounts'; } catch { /* storage unavailable */ }
+try { if (localStorage.getItem('relay.tab') === 'accounts') S.tab = 'accounts'; } catch { /* storage unavailable */ }
 const acctOf = (name) => S.accounts.find((a) => a.name === name);
 
 /* ---------- motion ---------- */
@@ -355,7 +374,7 @@ function endIntro() {
 const skipIntro = (e) => { if (BOOT.on) { e.preventDefault(); e.stopPropagation(); endIntro(); } };
 document.addEventListener('pointerdown', skipIntro, true);
 document.addEventListener('keydown', skipIntro, true);
-window.batonIntro = startIntro;
+window.relayIntro = startIntro;
 if (BOOT.on) { if (reducedMotion()) { BOOT.on = false; document.documentElement.classList.remove('booting'); } else BOOT.timer = setTimeout(endIntro, INTRO_MS); }
 const labelOf = (name) => acctOf(name)?.label || name;
 
@@ -411,7 +430,7 @@ function statusLine(a) {
 function manualPending(a) {
   const at = S.manual[a.name];
   if (!at) return false;
-  if ((a.usageAt || 0) >= at || Date.now() - at > 90000) { delete S.manual[a.name]; return false; }
+  if ((a.usageTriedAt || a.usageAt || 0) >= at || Date.now() - at > 90000) { delete S.manual[a.name]; return false; }
   return true;
 }
 function usageBlock(a, where) {
@@ -434,8 +453,14 @@ function usageBlock(a, where) {
   };
   return h('div', { class: 'usage' }, row('5h', t('usage_5h'), u.session), row('wk', t('usage_wk'), u.week));
 }
+// The last try failed: say so, and how old the numbers still shown are, instead of a fresh-looking "Updated just now".
+const usageFailed = (a) => !!a.usageError && (a.usageTriedAt || 0) > (a.usageAt || 0);
 function ageLine(a) {
   if (a.usage && manualPending(a)) return h('span', { class: 'age' }, h('span', { class: 'spin sm' }), t('usage_updating'));
+  if (a.usage && usageFailed(a)) {
+    return h('span', { class: 'age warn', title: a.usageError }, t('usage_failed'),
+      a.usageAt ? ['\u00a0· ', t('usage_from'), h('span', { 'data-age': a.usageAt }, fmtAge(a.usageAt)), t('usage_from_post')] : ['\u00a0· ', t('usage_old')]);
+  }
   if (!a.usageAt || !a.usage) return null;
   return h('span', { class: 'age' }, t('updated_pre'), h('span', { 'data-age': a.usageAt }, fmtAge(a.usageAt)), t('updated_post'));
 }
@@ -504,7 +529,7 @@ function liveRow(line) {
 }
 function workerLine(account, model) {
   if (!account) return h('div', { class: 'job-who' }, h('span', { class: 'who' }, t('starting')));
-  return h('div', { class: 'job-who' }, h('span', { class: 'who selectable', title: labelOf(account) }, labelOf(account)), model ? h('span', { class: 'model', title: model }, ` · ${model}`) : null);
+  return h('div', { class: 'job-who' }, h('span', { class: 'who selectable', title: labelOf(account) }, labelOf(account)), model ? h('span', { class: 'model', title: model }, `\u00a0· ${model}`) : null); // a flex item drops a plain leading space
 }
 function runCard(r) {
   const waiting = r.status === 'waiting';
@@ -608,6 +633,9 @@ function overviewPanel() {
     out.push(h('div', { class: 'notice warn', role: 'alert', 'data-key': 'noclaude' }, icon('alert', 'ic sm'), h('span', {}, t('no_claude')),
       h('a', { href: 'https://claude.com/claude-code', target: '_blank', rel: 'noopener' }, t('get_claude'), icon('external', 'ic xs'))));
   }
+  if ((S.conflicts || []).includes('clauth')) {
+    out.push(h('div', { class: 'notice warn', role: 'alert', 'data-key': 'clauth' }, icon('alert', 'ic sm'), h('span', {}, t('conflict_clauth'))));
+  }
   if (!st.complete) out.push(setupCard());
 
   // This window (the leader)
@@ -676,6 +704,9 @@ function settingsView() {
       S.canAutoStart ? group('startup', t('set_startup'), h('div', { class: 'card row' },
         h('div', { class: 'row-text' }, h('b', {}, t('set_startup')), h('small', {}, t('set_startup_d'))),
         switchBtn(S.settings.startAtLogin !== false, 'autostart', t('set_startup')))) : null,
+      S.platform === 'darwin' ? group('panel', t('set_panel'), h('div', { class: 'card row' },
+        h('div', { class: 'row-text' }, h('b', {}, t('set_pin')), h('small', {}, t('set_pin_d'))),
+        switchBtn(!!S.settings.panelPinned, 'pin', t('set_pin')))) : null,
       group('conn', t('set_conn'), h('div', { class: 'card row' },
         h('div', { class: `row-text status ${S.connect.all ? 's-ready' : 's-off'}` }, h('i', { class: 'dot' }), h('span', {}, S.connect.all ? t('connected') : t('not_connected'))),
         S.connect.all ? h('button', { class: 'btn sm', type: 'button', 'data-act': 'disconnect' }, t('disconnect'))
@@ -719,7 +750,7 @@ function setTab(tab, focus) {
   clearTimeout(setTab.timer);
   setTab.timer = setTimeout(() => { S.tabAnim = null; schedule(); }, 600);
   S.tab = tab;
-  try { localStorage.setItem('baton.tab', tab); } catch { /* storage unavailable */ }
+  try { localStorage.setItem('relay.tab', tab); } catch { /* storage unavailable */ }
   render();
   if (sc) sc.scrollTop = S.scroll[tab] || 0;
   if (focus) $(`#tab-${tab}`)?.focus();
@@ -872,7 +903,7 @@ function openModelDialog(a) {
     value: a.model || '', okLabel: t('save'), submit: (model) => api('/api/accounts/model', { name: a.name, model }),
   });
 }
-// Taking Baton out of Claude Code keeps the saved sign-ins unless the box is ticked: they are the one thing
+// Taking Relay out of Claude Code keeps the saved sign-ins unless the box is ticked: they are the one thing
 // that costs a browser login each to get back.
 function openRemoveAll() {
   sheet((d) => {
@@ -954,6 +985,7 @@ const ACT = {
   }),
   disconnect: guard(async () => { S.connect = await api('/api/disconnect', {}); render(); }),
   autostart: guard(async () => { S.settings = await api('/api/settings', { startAtLogin: S.settings.startAtLogin === false }); render(); }),
+  pin: guard(async () => { S.settings = await api('/api/settings', { panelPinned: !S.settings.panelPinned }); render(); }),
   perm: guard(async (el) => {
     const before = S.settings;
     S.settings = { ...S.settings, permissionMode: el.dataset.mode };
@@ -996,7 +1028,8 @@ document.addEventListener('keydown', (e) => {
 function applyState(s) {
   Object.assign(S, {
     accounts: s.accounts, jobs: s.jobs, runs: s.runs || [], recent: s.recent || [], connect: s.connect, leader: s.leader, desktop: s.desktop || S.desktop,
-    cli: s.cli || S.cli, settings: s.settings || {}, login: s.login, claudeProblem: s.claudeProblem, canAutoStart: s.canAutoStart,
+    cli: s.cli || S.cli, settings: s.settings || {}, login: s.login, claudeProblem: s.claudeProblem, canAutoStart: s.canAutoStart, conflicts: s.conflicts || [],
+    platform: s.platform || S.platform,
   });
   setLang(S.settings.language);
 }

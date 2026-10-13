@@ -1,16 +1,17 @@
 {
-  "name": "baton",
-  "productName": "Baton",
+  "name": "relay",
+  "productName": "Relay",
   "version": "0.1.0",
-  "description": "Use several of your own Claude accounts from one Claude Code window: hand heavy jobs to your other accounts, with shared memory and usage at a glance.",
-  "author": { "name": "ZhengGao-30", "url": "https://github.com/ZhengGao-30" },
-  "homepage": "https://zhenggao-30.github.io/baton/",
+  "description": "Use several of your own Claude accounts from one Claude Code window: hand heavy jobs to your other accounts, with shared memory and usage at a glance. A macOS fork of Baton.",
+  "author": { "name": "OvOhao", "url": "https://github.com/OvOhao" },
+  "contributors": [{ "name": "ZhengGao-30", "url": "https://github.com/ZhengGao-30", "role": "author of Baton, which Relay is based on" }],
+  "homepage": "https://github.com/OvOhao/relay#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zhenggao-30/baton.git"
+    "url": "git+https://github.com/OvOhao/relay.git"
   },
   "bugs": {
-    "url": "https://github.com/zhenggao-30/baton/issues"
+    "url": "https://github.com/OvOhao/relay/issues"
   },
   "keywords": [
     "claude",
@@ -22,23 +23,24 @@
   ],
   "main": "src/main.js",
   "bin": {
-    "baton": "src/cli.js"
+    "relay": "src/cli.js"
   },
   "license": "MIT",
   "scripts": {
     "start": "electron .",
     "dev": "node src/dev.js",
     "test": "node --test test/*.test.js",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac"
   },
   "devDependencies": {
     "electron": "^44.7.0",
     "electron-builder": "^26.15.3"
   },
   "build": {
-    "appId": "dev.baton.app",
-    "productName": "Baton",
-    "copyright": "Copyright (c) 2026 ZhengGao-30",
+    "appId": "dev.relay.app",
+    "productName": "Relay",
+    "copyright": "Copyright (c) 2026 ZhengGao-30, OvOhao",
     "directories": {
       "buildResources": "build"
     },
@@ -48,7 +50,9 @@
       "build/icon.png",
       "build/icon.ico",
       "build/tray.png",
-      "package.json"
+      "package.json",
+      "build/trayTemplate.png",
+      "build/trayTemplate@2x.png"
     ],
     "icon": "build/icon.png",
     "win": {
@@ -61,19 +65,41 @@
     "nsis": {
       "oneClick": true,
       "perMachine": false,
-      "shortcutName": "Baton",
+      "shortcutName": "Relay",
       "deleteAppDataOnUninstall": false,
       "include": "build/installer.nsh",
-      "artifactName": "Baton-Setup.${ext}"
+      "artifactName": "Relay-Setup.${ext}"
     },
     "portable": {
-      "artifactName": "Baton-portable.${ext}"
+      "artifactName": "Relay-portable.${ext}"
     },
     "mac": {
       "target": [
-        "dmg"
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.png",
+      "darkModeSupport": true,
+      "identity": "-",
+      "hardenedRuntime": false,
+      "artifactName": "Relay-${version}-mac-${arch}.${ext}",
+      "extendInfo": {
+        "LSUIElement": true,
+        "NSHumanReadableCopyright": "Copyright (c) 2026 ZhengGao-30, OvOhao"
+      }
     },
     "linux": {
       "target": [
@@ -81,6 +107,9 @@
       ],
       "category": "Development"
     },
-    "asar": false
+    "asar": false,
+    "dmg": {
+      "artifactName": "Relay-${version}-${arch}.${ext}"
+    }
   }
 }

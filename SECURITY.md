@@ -9,11 +9,11 @@ Use GitHub's private vulnerability reporting: go to the repository's **Security*
 Please include:
 
 - what you found and where (file, function or screen),
-- the steps to reproduce it, and the Baton version (see `package.json`),
+- the steps to reproduce it, and the Relay version (see `package.json`),
 - what an attacker could do with it.
 
 We will read the report, reply as soon as we can, and keep you informed while we work on a fix. Please give us a reasonable time to fix the problem before you share it publicly.
 
 ## Scope
 
-Baton handles no credentials, by design. It never reads, copies or sends your Claude sign-in tokens; sign-in goes through Claude Code's own `claude auth login`, and each account's tokens stay in that account's own Claude Code folder. It listens only on `127.0.0.1`. Reports about any of these properties are especially welcome.
+Relay handles no credentials, by design. It never reads, copies or sends your Claude sign-in tokens; sign-in goes through Claude Code's own `claude auth login`, and each account's tokens stay in that account's own Claude Code folder. It listens only on `127.0.0.1`. Reports about any of these properties are especially welcome.

@@ -16,11 +16,11 @@ const { spawnClaude, accountEnv, authStatus } = require('./claude');
 // line, which a batch file cannot read intact (its parameter parser splits at '=' and '&').
 // So on Windows the launcher is a tiny PowerShell script that reads the URL out of its parent
 // cmd.exe's raw command line instead of out of %1.
-const PS_LAUNCHER = String.raw`# Reads the login URL Claude Code passed to its browser launcher and hands it to Baton.
+const PS_LAUNCHER = String.raw`# Reads the login URL Claude Code passed to its browser launcher and hands it to Relay.
 try {
   $me = Get-CimInstance Win32_Process -Filter "ProcessId=$PID"
   $line = (Get-CimInstance Win32_Process -Filter "ProcessId=$($me.ParentProcessId)").CommandLine -replace '\^', ''
-  if ($line -match 'https?://[^"\\\s]+') { [IO.File]::WriteAllText($env:BATON_URL_FILE, $Matches[0]) }
+  if ($line -match 'https?://[^"\\\s]+') { [IO.File]::WriteAllText($env:RELAY_URL_FILE, $Matches[0]) }
 } catch { }
 `;
 
@@ -30,8 +30,8 @@ function spaceFree(p) {
   try {
     const out = require('child_process').execFileSync(
       'powershell.exe',
-      ['-NoProfile', '-Command', '(New-Object -ComObject Scripting.FileSystemObject).GetFile($env:BATON_LONG).ShortPath'],
-      { encoding: 'utf8', env: { ...process.env, BATON_LONG: p } },
+      ['-NoProfile', '-Command', '(New-Object -ComObject Scripting.FileSystemObject).GetFile($env:RELAY_LONG).ShortPath'],
+      { encoding: 'utf8', env: { ...process.env, RELAY_LONG: p } },
     ).trim();
     return out && !/\s/.test(out) ? out : p;
   } catch {
@@ -39,7 +39,7 @@ function spaceFree(p) {
   }
 }
 
-// The launcher files are shared by every Baton process and one may be running a launcher right now (Windows then
+// The launcher files are shared by every Relay process and one may be running a launcher right now (Windows then
 // refuses to overwrite it): write only when the content differs, atomically, and never fail a sign-in over it.
 function putLauncher(file, text, mode) {
   try { if (fs.readFileSync(file, 'utf8') === text) return; } catch { /* missing: write it */ }
@@ -56,7 +56,7 @@ function ensureLauncher() {
     return spaceFree(cmd);
   }
   const file = path.join(dir, 'open-url.sh');
-  putLauncher(file, '#!/bin/sh\nprintf \'%s\n\' "$1" > "$BATON_URL_FILE"\n', 0o755);
+  putLauncher(file, '#!/bin/sh\nprintf \'%s\n\' "$1" > "$RELAY_URL_FILE"\n', 0o755);
   return file;
 }
 
@@ -98,7 +98,7 @@ const findChromium = () => chromiumCandidates().find((p) => fs.existsSync(p)) ||
 
 // Open `url` in this account's own browser profile; fall back to the system default browser.
 function openLoginPage(url, acct) {
-  if (process.env.BATON_NO_BROWSER) return { method: 'none' };
+  if (process.env.RELAY_NO_BROWSER) return { method: 'none' };
   const browser = findChromium();
   if (browser) {
     const profile = path.join(store.home(), 'browser', acct.name);
@@ -127,7 +127,7 @@ function startLogin(acct, { onUrl = () => {}, timeoutMs = 10 * 60 * 1000 } = {})
 
   const args = ['auth', 'login', ...(acct.email ? ['--email', acct.email] : [])];
   const child = spawnClaude(args, {
-    env: accountEnv(acct, { BROWSER: ensureLauncher(), BATON_URL_FILE: urlFile }),
+    env: accountEnv(acct, { BROWSER: ensureLauncher(), RELAY_URL_FILE: urlFile }),
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
