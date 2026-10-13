@@ -157,101 +157,26 @@ test('stopping a run stops what it started too (its own process group)', { skip:
   assert.equal(left, false, 'the grandchild outlived the run');
 });
 
-// ---- Baton -> Relay ----
-function legacySandbox() {
+// ---- sign-in folders kept outside ~/.relay ----
+test('sign-in folders in an extra root (settings: extraAccountRoots) are Relay\'s to manage, and only those', async () => {
   const root = sandbox();
-  const legacy = path.join(root, 'baton-home');
-  process.env.RELAY_LEGACY_HOME = legacy;
   const store = require(`${SRC}/core/store`);
   const setup = require(`${SRC}/core/setup`);
-  const dirs = ['lead', 'w1'].map((n) => path.join(legacy, 'accounts', n));
+  const extra = path.join(root, 'elsewhere', 'accounts');
+  store.saveSettings({ extraAccountRoots: [extra, 'not/absolute', 7] });
+  const dirs = ['a', 'b'].map((n) => path.join(extra, n));
   dirs.forEach((d) => setup.prepareConfigDir(d));
-  fs.mkdirSync(legacy, { recursive: true });
-  fs.writeFileSync(path.join(legacy, 'accounts.json'), JSON.stringify(dirs.map((d, i) => ({ ...store.newAccount(['lead', 'w1'][i], d, `${i}@x.com`), desktop: i === 0 }))));
-  fs.writeFileSync(path.join(legacy, 'settings.json'), JSON.stringify({ language: 'zh', startAtLogin: true }));
-  fs.mkdirSync(path.join(legacy, 'projects', 'p-1'), { recursive: true });
-  fs.writeFileSync(path.join(legacy, 'projects', 'p-1', 'ledger.jsonl'), '{}\n');
-  return { root, legacy, dirs, store };
-}
-
-test('first start as Relay: ~/.baton moves to ~/.relay, the sign-in folders stay where their logins are', () => {
-  const { legacy, dirs, store } = legacySandbox();
-  try {
-    const { migrateHome } = require(`${SRC}/core/migrate`);
-    const r = migrateHome();
-    assert.deepEqual(r.moved.sort(), ['accounts.json', 'projects', 'settings.json']);
-    const home = process.env.RELAY_HOME;
-    assert.ok(fs.existsSync(path.join(home, 'projects', 'p-1', 'ledger.jsonl')));
-    assert.ok(fs.existsSync(dirs[0]) && fs.existsSync(dirs[1]), 'sign-in folders are not moved');
-    assert.ok(!fs.existsSync(path.join(home, 'accounts')));
-    assert.deepEqual(store.load().map((a) => a.configDir), dirs, 'accounts still point at their folders');
-    assert.equal(store.loadSettings().language, 'zh');
-    assert.ok(dirs.every((d) => store.ownsConfigDir(d)), 'the kept folders are still Relay\'s to manage');
-    assert.equal(store.ownsConfigDir(process.env.RELAY_HUB), false, 'never the main ~/.claude');
-    assert.deepEqual(migrateHome().moved, [], 'only once');
-  } finally {
-    delete process.env.RELAY_LEGACY_HOME;
-  }
-});
-
-test('an account kept from Baton can still be removed, and Remove Relay with sign-ins clears ~/.baton too', async () => {
-  const { legacy, dirs, store } = legacySandbox();
-  try {
-    require(`${SRC}/core/migrate`).migrateHome();
-    const setup = require(`${SRC}/core/setup`);
-    setup.removeConfigDir(dirs[1]); // refused before: "not inside the accounts folder"
-    assert.ok(!fs.existsSync(dirs[1]));
-    await require(`${SRC}/core/connect`).removeAll({ logins: true });
-    assert.ok(!fs.existsSync(legacy) && !fs.existsSync(process.env.RELAY_HOME));
-    assert.ok(fs.existsSync(process.env.RELAY_HUB));
-  } finally {
-    delete process.env.RELAY_LEGACY_HOME;
-  }
-});
-
-test('Claude Code wired up as Baton is rewired as Relay: old tool, skill and hooks out, new ones in, other hooks kept', async () => {
-  const root = sandbox();
-  const hub = process.env.RELAY_HUB;
-  const other = { hooks: [{ type: 'command', command: 'echo mine' }] };
-  const oldHook = (m) => ({ ...m, hooks: [{ type: 'command', command: 'sh "/Users/x/.baton/bin/baton-hook.sh"', timeout: 10 }] });
-  fs.writeFileSync(path.join(hub, 'settings.json'), JSON.stringify({ hooks: { StopFailure: [other, oldHook({ matcher: 'rate_limit' })], SessionStart: [oldHook({})] } }));
-  fs.writeFileSync(path.join(hub, 'settings.json.baton-backup'), '{}');
-  fs.writeFileSync(path.join(hub, '.claude.json'), JSON.stringify({ mcpServers: { baton: { command: 'x' }, keep: { command: 'y' } } }));
-  fs.mkdirSync(path.join(hub, 'skills', 'baton'), { recursive: true });
-  fs.writeFileSync(path.join(hub, 'skills', 'baton', 'SKILL.md'), '---\nname: baton\n---\n<!-- managed by Baton: removed when you disconnect Baton -->\n');
-  fs.mkdirSync(path.join(hub, 'skills', 'mine'), { recursive: true });
-
-  const connect = require(`${SRC}/core/connect`);
-  assert.equal(connect.legacyStatus().any, true);
-  const st = await connect.migrateLegacyWiring();
-  assert.equal(st.all, true);
-  assert.equal(connect.legacyStatus().any, false);
-  const settings = JSON.parse(fs.readFileSync(path.join(hub, 'settings.json'), 'utf8'));
-  const cmds = (ev) => settings.hooks[ev].flatMap((e) => e.hooks.map((h) => h.command));
-  assert.deepEqual(cmds('StopFailure').filter((c) => !c.includes('relay-hook')), ['echo mine']);
-  assert.ok(cmds('SessionStart').every((c) => c.includes('relay-hook')));
-  const mcp = JSON.parse(fs.readFileSync(path.join(hub, '.claude.json'), 'utf8')).mcpServers;
-  assert.deepEqual(Object.keys(mcp).sort(), ['keep', 'relay']);
-  assert.ok(!fs.existsSync(path.join(hub, 'skills', 'baton')) && fs.existsSync(path.join(hub, 'skills', 'mine')));
-  assert.ok(fs.existsSync(path.join(hub, 'skills', 'relay', 'SKILL.md')));
-  assert.ok(fs.existsSync(path.join(hub, 'settings.json.relay-backup')));
-  assert.equal(await connect.migrateLegacyWiring(), null, 'nothing to do the second time');
-  void root;
-});
-
-test('the open-at-login agent from Baton is replaced by Relay\'s', { skip: !posix }, () => {
-  const root = sandbox();
-  process.env.RELAY_LAUNCH_AGENTS_DIR = path.join(root, 'LaunchAgents');
-  try {
-    const p = require(`${SRC}/core/platform`);
-    fs.mkdirSync(process.env.RELAY_LAUNCH_AGENTS_DIR, { recursive: true });
-    fs.writeFileSync(path.join(process.env.RELAY_LAUNCH_AGENTS_DIR, 'dev.baton.app.plist'), '<plist/>');
-    assert.equal(p.removeLegacyAutoStart(), true);
-    assert.equal(p.removeLegacyAutoStart(), false);
-    assert.match(p.agentPlist({ packaged: true, execPath: '/Applications/Relay.app/Contents/MacOS/Relay' }), /dev\.relay\.app[\s\S]*\/Applications\/Relay\.app/);
-  } finally {
-    delete process.env.RELAY_LAUNCH_AGENTS_DIR;
-  }
+  assert.deepEqual(store.accountRoots(), [path.join(process.env.RELAY_HOME, 'accounts'), extra], 'only absolute paths count');
+  assert.ok(dirs.every((d) => store.ownsConfigDir(d)));
+  assert.equal(store.ownsConfigDir(process.env.RELAY_HUB), false, 'never the main ~/.claude');
+  assert.equal(store.ownsConfigDir(path.join(root, 'elsewhere')), false);
+  setup.removeConfigDir(dirs[1]);
+  assert.ok(!fs.existsSync(dirs[1]));
+  const adopted = await require(`${SRC}/core/reconcile`).adoptOrphans();
+  assert.deepEqual(adopted, ['a'], 'a signed-in folder there is listed again after a lost registry');
+  await require(`${SRC}/core/connect`).removeAll({ logins: true });
+  assert.ok(!fs.existsSync(extra) && !fs.existsSync(process.env.RELAY_HOME));
+  assert.ok(fs.existsSync(process.env.RELAY_HUB));
 });
 
 test('a login Claude Code cannot read: "sign in needed" after two tries in a row, and old numbers are not dated as new', async () => {

@@ -105,14 +105,7 @@ function setAutoStart(on, opts) {
 }
 
 const autoStartInstalled = () => fs.existsSync(agentFile());
-const removeAutoStart = () => { fs.rmSync(agentFile(), { force: true }); removeLegacyAutoStart(); };
-// The agent from when Relay was called Baton; true when there was one (the choice carries over to Relay's own).
-function removeLegacyAutoStart() {
-  const old = path.join(agentsDir(), 'dev.baton.app.plist');
-  if (!fs.existsSync(old)) return false;
-  fs.rmSync(old, { force: true });
-  return true;
-}
+const removeAutoStart = () => fs.rmSync(agentFile(), { force: true });
 
 // ---- signing an account out before its folder is deleted ----
 function forgetLogin(acct, { timeoutMs = 20000 } = {}) {
@@ -131,4 +124,4 @@ function forgetLogin(acct, { timeoutMs = 20000 } = {}) {
   });
 }
 
-module.exports = { fixPath, mergePath, standardDirs, setAutoStart, autoStartInstalled, removeAutoStart, removeLegacyAutoStart, agentPlist, agentFile, launchArgs, forgetLogin, LABEL };
+module.exports = { fixPath, mergePath, standardDirs, setAutoStart, autoStartInstalled, removeAutoStart, agentPlist, agentFile, launchArgs, forgetLogin, LABEL };

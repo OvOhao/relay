@@ -76,17 +76,7 @@ function writeSettings(obj) {
   fslock.writeFileAtomic(file, `${JSON.stringify(obj, null, 2)}\n`); // unique temp name + retried rename
 }
 
-const LEGACY_MARK = 'baton-hook'; // from when Relay was called Baton: replaced on install, removed on uninstall
-const isOurs = (entry) => (entry.hooks || []).some((h) => [MARK, LEGACY_MARK].some((m) => String(h.command || '').includes(m)));
-const isLegacy = (entry) => (entry.hooks || []).some((h) => String(h.command || '').includes(LEGACY_MARK));
-
-// Whether settings.json still has hooks from when Relay was called Baton.
-function legacyInstalled() {
-  try {
-    const hooks = readSettings().hooks || {};
-    return EVENTS.some((ev) => (hooks[ev] || []).some(isLegacy));
-  } catch { return false; }
-}
+const isOurs = (entry) => (entry.hooks || []).some((h) => String(h.command || '').includes(MARK));
 
 const EVENTS = ['StopFailure', 'SessionStart'];
 
@@ -140,4 +130,4 @@ function writeConnect(port) {
   return token;
 }
 
-module.exports = { install, uninstall, status, writeConnect, settingsPath, legacyInstalled };
+module.exports = { install, uninstall, status, writeConnect, settingsPath };

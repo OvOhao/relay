@@ -19,8 +19,6 @@ const connect = require('./core/connect');
 const platform = require('./core/platform');
 const { spawnClaude, accountEnv, authStatus } = require('./core/claude');
 
-require('./core/migrate').migrateHome(); // Relay used to be called Baton: bring ~/.baton over first (sign-ins stay)
-
 const [cmd, ...rest] = process.argv.slice(2);
 const flag = (name) => {
   const i = rest.indexOf(`--${name}`);

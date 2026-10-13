@@ -72,7 +72,7 @@ npm run dist:mac
 <details>
 <summary><b>Windows</b></summary>
 
-`npm start` 以托盘应用运行；`npm run dist` 打包安装程序和免安装版。Baton 原有的 Windows 代码都保留着，但改名后还没有在 Windows 上重新测试过。
+`npm start` 以托盘应用运行；`npm run dist` 打包安装程序和免安装版。Windows 版在 CI 里测试通过，但还没有在真实的 Windows 电脑上试过。
 
 </details>
 
@@ -149,32 +149,25 @@ flowchart LR
 </details>
 
 <details>
-<summary><b>之前用的是 Baton？</b></summary>
-
-Relay 第一次启动时会把 `~/.baton` 迁到 `~/.relay`，但 `~/.baton/accounts` 下的登录文件夹原地保留（登录信息跟这个路径绑定），所以不用重新登录。如果之前以 Baton 的名字连接过 Claude Code，会自动换成 Relay，旧的开机启动项也会被替换。迁移后退出 Baton，新开一个 Claude Code 会话即可。
-
-</details>
-
-<details>
 <summary><b>还没验证过的部分</b></summary>
 
-真实的套餐限额接管（目前只用模拟的限额事件和假的 `claude` 测过）、Apple 公证，以及改名后的 Windows 版本。
+真实的套餐限额接管（目前只用模拟的限额事件和假的 `claude` 测过）、Apple 公证，以及在真实 Windows 电脑上的运行。
 
 </details>
 
 ## 开发
 
 ```bash
-npm test                            # 76 个测试，用假的 claude，不消耗额度
+npm test                            # 73 个测试，用假的 claude，不消耗额度
 node src/dev.js --demo              # 在浏览器里看面板
 npx electron scripts/make-icon.js   # 从 build/logo.svg 和 build/mark.svg 生成图标
 npx electron scripts/screenshots.js # 用 demo 数据生成上面的截图
 ```
 
-`src/core`：账号、限额检测与接管、额度读取、项目记忆、worker、钩子与连接、macOS 适配、Baton 迁移。`src/mcp.js` 是 MCP 服务，`src/server.js` 是本地接口，`ui/` 是面板，`src/main.js` 是 Electron 外壳。
+`src/core`：账号、限额检测与接管、额度读取、项目记忆、worker、钩子与连接、macOS 适配。`src/mcp.js` 是 MCP 服务，`src/server.js` 是本地接口，`ui/` 是面板，`src/main.js` 是 Electron 外壳。
 
 ## 致谢
 
-Relay 基于 [ZhengGao-30](https://github.com/ZhengGao-30) 和[贡献者们](CONTRIBUTORS.md)的 **[Baton](https://github.com/zhenggao-30/baton)** 修改而来，改成了 macOS 菜单栏应用。Relay 是独立项目，与 Anthropic 无关联。
+Relay 包含 [ZhengGao-30](https://github.com/ZhengGao-30) 的代码，按 MIT 许可使用。Relay 是独立项目，与 Anthropic 无关联。
 
 [MIT](LICENSE)

@@ -145,7 +145,7 @@ async function removeAll({ logins = false } = {}) {
     }
     return { logins: false };
   }
-  for (const accountsRoot of store.accountRoots()) { // Relay's own, and the sign-ins kept from when it was Baton
+  for (const accountsRoot of store.accountRoots()) { // Relay's own, and any extra folders of sign-ins
     let names = [];
     try { names = fs.readdirSync(accountsRoot); } catch { /* nothing created yet */ }
     for (const n of names) {
@@ -154,35 +154,9 @@ async function removeAll({ logins = false } = {}) {
       setup.removeConfigDir(dir);
     }
   }
+  for (const extra of store.accountRoots().slice(1)) { try { fs.rmdirSync(extra); } catch { /* not empty, or gone */ } }
   fs.rmSync(store.home(), { recursive: true, force: true });
-  if (store.legacyHome()) fs.rmSync(store.legacyHome(), { recursive: true, force: true });
   return { logins: true };
 }
 
-// ---- from Baton to Relay ----
-// Relay used to be called Baton. A Claude Code that was connected under the old name still has the "baton" tool, the
-// "baton" skill and hooks that call ~/.baton/bin/baton-hook.*: take those out and connect again under the new name.
-// Nothing happens when the old wiring is not there (never connected, disconnected, or already moved over).
-const LEGACY = { mcp: 'baton', skillDir: () => path.join(setup.hubDir(), 'skills', 'baton'), skillMark: 'managed by Baton' };
-
-function legacyStatus() {
-  let mcp = false;
-  try { mcp = !!JSON.parse(fs.readFileSync(claudeJson(), 'utf8')).mcpServers?.[LEGACY.mcp]; } catch { /* no ~/.claude.json */ }
-  let skill = false;
-  try { skill = fs.readFileSync(path.join(LEGACY.skillDir(), 'SKILL.md'), 'utf8').includes(LEGACY.skillMark); } catch { /* not there */ }
-  const hooks = hook.legacyInstalled();
-  return { mcp, skill, hooks, any: mcp || skill || hooks };
-}
-
-async function migrateLegacyWiring() {
-  const old = legacyStatus();
-  if (!old.any) return null;
-  if (old.mcp) await runClaude(['mcp', 'remove', LEGACY.mcp, '--scope', 'user']);
-  if (old.skill) fs.rmSync(LEGACY.skillDir(), { recursive: true, force: true }); // only ever the one Baton wrote (its mark)
-  const oldBackup = `${hook.settingsPath()}.baton-backup`;
-  const backup = `${hook.settingsPath()}.relay-backup`;
-  try { if (fs.existsSync(oldBackup) && !fs.existsSync(backup)) fs.renameSync(oldBackup, backup); } catch { /* keep the old one */ }
-  return install(); // the hook install also replaces the old hook entries (see hook.isOurs)
-}
-
-module.exports = { install, uninstall, removeAll, status, legacyStatus, migrateLegacyWiring, SKILL };
+module.exports = { install, uninstall, removeAll, status, SKILL };
