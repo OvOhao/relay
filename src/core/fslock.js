@@ -1,6 +1,6 @@
 'use strict';
-// Cross-process safety for the small JSON files every Baton process shares (each Claude window runs its own Baton
-// tool process, plus the Baton app). Two things go wrong without it: two writers renaming over the same file at once
+// Cross-process safety for the small JSON files every Relay process shares (each Claude window runs its own Relay
+// tool process, plus the Relay app). Two things go wrong without it: two writers renaming over the same file at once
 // fail on Windows (EPERM/EBUSY/ENOENT), and two read-modify-writes in parallel silently lose one of the updates.
 //   withFileLock(path, fn)  runs fn while holding "<path>.lock" (exclusive create), for synchronous code only
 //   writeFileAtomic / writeJson  unique temp file + rename with bounded retries; never leaves a temp file behind

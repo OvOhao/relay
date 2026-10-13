@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="20 18 64 64">
+  <!-- Menu-bar template: the Relay R in one colour; the arrow sits a little further out so the hand-off gap survives at 18 px -->
+  <g fill="none" stroke="#000" stroke-width="9.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 75V26H52a12.5 12.5 0 0 1 0 25H32"/>
+    <path d="M59 62L73 76M61 76H73V64"/>
+  </g>
+</svg>

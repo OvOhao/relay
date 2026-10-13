@@ -31,5 +31,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/Baton-Setup.exe
-            dist/Baton-portable.exe
+            dist/Relay-Setup.exe
+            dist/Relay-portable.exe

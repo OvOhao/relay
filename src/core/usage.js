@@ -8,7 +8,7 @@ const os = require('os');
 const path = require('path');
 const store = require('./store');
 const fslock = require('./fslock');
-const { spawnClaude, accountEnv } = require('./claude');
+const { spawnClaude, accountEnv, authStatus } = require('./claude');
 const { looksLikeAuthError } = require('./parse');
 
 const cacheFile = () => path.join(store.home(), 'usage.json');
@@ -17,7 +17,7 @@ const MONTHS = 'jan feb mar apr may jun jul aug sep oct nov dec'.split(' ');
 function readCache() {
   try { return fslock.readJson(cacheFile(), {}); } catch { return {}; }
 }
-// Every window's Baton process and the app refresh this cache: change one account's entry under a cross-process
+// Every window's Relay process and the app refresh this cache: change one account's entry under a cross-process
 // lock (re-reading inside it) so nobody drops another's reading, and never fail a job over a cache write.
 function updateCache(name, fn) {
   try {
@@ -89,8 +89,8 @@ function fetchUsage(acct, timeoutMs = 60000) {
     let child;
     try {
       child = spawnClaude(['-p', '/usage', '--output-format', 'json', '--no-session-persistence'], {
-        // BATON_TAKEOVER marks this as Baton's own run, so the SessionStart hook does not report it as a user session
-        cwd: os.tmpdir(), env: accountEnv(acct, { BATON_TAKEOVER: 'usage' }), stdio: ['ignore', 'pipe', 'ignore'],
+        // RELAY_TAKEOVER marks this as Relay's own run, so the SessionStart hook does not report it as a user session
+        cwd: os.tmpdir(), env: accountEnv(acct, { RELAY_TAKEOVER: 'usage' }), stdio: ['ignore', 'pipe', 'ignore'],
       });
     } catch (e) {
       return resolve({ error: e.message });
@@ -128,6 +128,15 @@ function applyTruth(acct, data) {
 // account be tried again, which is how a login that still works comes back by itself after a restart).
 const AUTH_STRIKES = 2;
 
+// A login that disappears is rare and its cause is outside Relay (it never signs anyone out by itself, except when you
+// remove an account): leave a dated line in events.log so it can be matched with whatever else happened then.
+function noteSignedOut(acct, cached) {
+  try {
+    const line = { at: new Date().toISOString(), event: 'signed-out', account: acct.name, configDir: acct.configDir, lastUsageOk: cached?.okAt ? new Date(cached.okAt).toISOString() : null };
+    fs.appendFileSync(path.join(store.home(), 'events.log'), `${JSON.stringify(line)}\n`);
+  } catch { /* logging must never break a reading */ }
+}
+
 // One reading takes 13-20 s (it starts the official Claude Code and asks Anthropic), so it can never be instant.
 // What keeps it feeling live is never reading the same account twice at once and reading all accounts side by side.
 const inflight = new Map();
@@ -147,21 +156,32 @@ async function readOne(name, { recheck = false } = {}) {
   if (res.data) {
     applyTruth(acct, res.data);
     if (acct.needsLogin || acct.authFails) store.update(name, { needsLogin: false, authFails: 0 });
-    return updateCache(name, () => ({ at: Date.now(), data: res.data }));
+    return updateCache(name, () => ({ at: Date.now(), okAt: Date.now(), data: res.data }));
   }
-  if (res.authFailed) {
+  // No numbers came back. A folder whose login Claude Code cannot read answers /usage with a cost summary instead of an
+  // error, which no text check recognises: ask Claude Code itself whether the folder has a login. On macOS that answer
+  // can be "no" for one moment and "yes" the next (the Keychain may refuse a read, e.g. while it asks you to allow
+  // access), so it counts as one strike like any other auth failure; "sign in needed" takes AUTH_STRIKES in a row.
+  let signedOut = false;
+  if (!res.authFailed) {
+    const info = await authStatus(acct);
+    signedOut = info.loggedIn === false && !info.error;
+  }
+  if (signedOut || res.authFailed) {
     const fails = (acct.authFails || 0) + 1;
-    if (fails >= AUTH_STRIKES) store.markNeedsLogin(name);
-    else store.update(name, { authFails: fails });
+    if (fails >= AUTH_STRIKES && !acct.needsLogin) { noteSignedOut(acct, readCache()[name]); store.markNeedsLogin(name); }
+    store.update(name, { authFails: fails });
   }
-  return updateCache(name, (prev) => ({ at: Date.now(), error: res.error, data: prev?.data || null }));
+  // `at` is when Relay last tried, `okAt` when a reading last worked: the panel dates the numbers by okAt.
+  return updateCache(name, (prev) => ({ at: Date.now(), okAt: prev?.okAt || null, error: signedOut ? 'signed out' : res.error, data: prev?.data || null }));
 }
 
-// Accounts whose last reading is older than maxAgeMs (all of them when 0), skipping signed-out ones.
-function stale(maxAgeMs = 0, names = null) {
+// Accounts whose last reading is older than maxAgeMs (all of them when 0), skipping signed-out ones unless `recheck`
+// (pressing Refresh tries those again too: a login that still works comes back by itself).
+function stale(maxAgeMs = 0, names = null, { recheck = false } = {}) {
   const cache = readCache();
   return store.load()
-    .filter((a) => !a.needsLogin && (!names || names.includes(a.name)))
+    .filter((a) => (recheck || !a.needsLogin) && (!names || names.includes(a.name)))
     .filter((a) => !maxAgeMs || !cache[a.name] || Date.now() - cache[a.name].at >= maxAgeMs)
     .map((a) => a.name);
 }

@@ -9,10 +9,15 @@ const fs = require('fs');
 const path = require('path');
 
 const args = process.argv.slice(2);
+// FAKE_SIGNED_OUT: login folders (by name) that have no login, as if it was never made or was removed (the demo)
+if ((process.env.FAKE_SIGNED_OUT || '').split(',').includes(path.basename(process.env.CLAUDE_CONFIG_DIR || ''))) process.env.FAKE_LOGGED_OUT = '1';
 if (args[0] === 'auth') {
-  if (args[1] === 'login') {
+  if (args[1] === 'logout') { // record which login folder was signed out (macOS: Claude Code drops its Keychain entry)
+    if (process.env.FAKE_STATE) fs.appendFileSync(path.join(process.env.FAKE_STATE, 'logouts.log'), `${process.env.CLAUDE_CONFIG_DIR || ''}\n`);
+    process.exit(0);
+  } else if (args[1] === 'login') {
     // pretend the browser sign-in takes a few seconds
-    if (process.env.BATON_URL_FILE) fs.writeFileSync(process.env.BATON_URL_FILE, 'https://claude.ai/oauth/authorize?demo=1\n');
+    if (process.env.RELAY_URL_FILE) fs.writeFileSync(process.env.RELAY_URL_FILE, 'https://claude.ai/oauth/authorize?demo=1\n');
     setTimeout(() => process.exit(0), Number(process.env.FAKE_LOGIN_MS || 3000));
   } else {
     console.log(JSON.stringify(process.env.FAKE_LOGGED_OUT
@@ -23,6 +28,22 @@ if (args[0] === 'auth') {
   return;
 }
 
+if (args.includes('/usage') && process.env.FAKE_LOGGED_OUT) { // a folder without a login: a cost summary, no numbers
+  console.log(JSON.stringify({ result: 'Total cost:            $0.0000\nTotal duration (API):  0s\nUsage:                 ' }));
+  process.exit(0);
+}
+// FAKE_USAGE: { "<login folder name>": [session %, hours to its reset, week %, hours to its reset] } (the demo)
+const demoUsage = process.env.FAKE_USAGE && JSON.parse(process.env.FAKE_USAGE)[path.basename(process.env.CLAUDE_CONFIG_DIR || '')];
+if (args.includes('/usage') && demoUsage) {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const at = (hrs) => {
+    const d = new Date(Date.now() + hrs * 3600e3);
+    return `${d.toLocaleString('en-US', { month: 'short' })} ${d.getDate()}, ${d.getHours() % 12 || 12}${d.getHours() >= 12 ? 'pm' : 'am'} (${tz})`;
+  };
+  const [s, sh, w, wh] = demoUsage;
+  console.log(JSON.stringify({ result: ['You are currently using your subscription', '', `Current session: ${s}% used · resets ${at(sh)}`, `Current week (all models): ${w}% used · resets ${at(wh)}`].join('\n') }));
+  process.exit(0);
+}
 if (args.includes('/usage')) { // the official usage panel, as printed by a recent Claude Code
   const lines = [
     'You are currently using your subscription', '',

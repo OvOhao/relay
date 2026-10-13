@@ -11,7 +11,7 @@ const store = require('./store');
 const SHARED_DIRS = ['projects', 'skills', 'plugins', 'agents', 'commands'];
 const SHARED_FILES = ['settings.json', 'CLAUDE.md'];
 
-const hubDir = () => process.env.BATON_HUB || path.join(os.homedir(), '.claude');
+const hubDir = () => process.env.RELAY_HUB || path.join(os.homedir(), '.claude');
 const accountDir = (name) => path.join(store.home(), 'accounts', name);
 
 const exists = (p) => {
@@ -48,8 +48,8 @@ function syncSharedFiles(dir) {
 
 // Unlink the shared junctions first (removing the link, never its target), then the rest.
 function removeConfigDir(dir) {
-  if (!path.resolve(dir).startsWith(path.resolve(store.home(), 'accounts') + path.sep)) {
-    throw new Error(`refusing to delete ${dir}: not inside the Baton accounts folder`);
+  if (!store.ownsConfigDir(dir)) {
+    throw new Error(`refusing to delete ${dir}: not inside a Relay accounts folder`);
   }
   for (const d of SHARED_DIRS) {
     const p = path.join(dir, d);

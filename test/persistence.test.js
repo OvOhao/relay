@@ -13,20 +13,20 @@ const U1 = '11111111-aaaa-4bbb-8ccc-111111111111';
 const U2 = '22222222-aaaa-4bbb-8ccc-222222222222';
 
 function sandbox(accounts = [['w1', 'w1@x.com', {}]]) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'baton-test-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-test-'));
   Object.assign(process.env, {
-    BATON_HOME: path.join(root, 'home'),
-    BATON_HUB: path.join(root, 'hub'),
-    BATON_DESKTOP_DIR: path.join(root, 'desktop-sessions'),
-    BATON_DESKTOP_TTL: '0',
+    RELAY_HOME: path.join(root, 'home'),
+    RELAY_HUB: path.join(root, 'hub'),
+    RELAY_DESKTOP_DIR: path.join(root, 'desktop-sessions'),
+    RELAY_DESKTOP_TTL: '0',
     FAKE_STATE: path.join(root, 'state'),
     FAKE_PLAN: '{}',
-    BATON_CLAUDE_CMD: JSON.stringify([process.execPath, FAKE]),
+    RELAY_CLAUDE_CMD: JSON.stringify([process.execPath, FAKE]),
   });
-  delete process.env.BATON_TAKEOVER;
+  delete process.env.RELAY_TAKEOVER;
   fs.mkdirSync(process.env.FAKE_STATE, { recursive: true });
-  fs.mkdirSync(process.env.BATON_HUB, { recursive: true });
-  fs.mkdirSync(process.env.BATON_DESKTOP_DIR, { recursive: true });
+  fs.mkdirSync(process.env.RELAY_HUB, { recursive: true });
+  fs.mkdirSync(process.env.RELAY_DESKTOP_DIR, { recursive: true });
   const store = require(`${SRC}/core/store`);
   store.save(accounts.map(([n, email, extra]) => ({ ...store.newAccount(n, path.join(root, 'home', 'accounts', n), email), ...extra })));
   return { store, root };
@@ -34,7 +34,7 @@ function sandbox(accounts = [['w1', 'w1@x.com', {}]]) {
 
 // A desktop-app session file for an account, last touched `ageSec` seconds ago.
 function desktopSession(uuid, ageSec) {
-  const dir = path.join(process.env.BATON_DESKTOP_DIR, uuid, '59f212a8-5045-4baa-ba70-df04b04233a5');
+  const dir = path.join(process.env.RELAY_DESKTOP_DIR, uuid, '59f212a8-5045-4baa-ba70-df04b04233a5');
   fs.mkdirSync(dir, { recursive: true });
   const f = path.join(dir, `local_${ageSec}.json`);
   fs.writeFileSync(f, '{}');
@@ -48,8 +48,8 @@ test('the desktop app\'s active account is read from folder names and timestamps
   assert.equal(desktop.activeAccount({ fresh: true }), null, 'no desktop app activity yet');
   desktopSession(U1, 3600);
   desktopSession(U2, 60);
-  fs.mkdirSync(path.join(process.env.BATON_DESKTOP_DIR, 'not-a-uuid', 'x'), { recursive: true });
-  fs.writeFileSync(path.join(process.env.BATON_DESKTOP_DIR, 'not-a-uuid', 'x', 'newer.json'), '{}');
+  fs.mkdirSync(path.join(process.env.RELAY_DESKTOP_DIR, 'not-a-uuid', 'x'), { recursive: true });
+  fs.writeFileSync(path.join(process.env.RELAY_DESKTOP_DIR, 'not-a-uuid', 'x', 'newer.json'), '{}');
   assert.equal(desktop.activeAccount({ fresh: true }).uuid, U2, 'the account with the most recent session wins; stray folders are ignored');
 });
 
@@ -146,7 +146,7 @@ test('panel API: the window\'s account is recognised from the desktop app alone,
     assert.equal(s.desktop.detected, false);
     assert.equal(s.leader, null);
 
-    desktopSession(U1, 30); // the app is in use, but no session has told Baton the e-mail yet
+    desktopSession(U1, 30); // the app is in use, but no session has told Relay the e-mail yet
     s = await state();
     assert.deepEqual([s.desktop.detected, s.desktop.pending, s.leader], [true, true, null]);
 
@@ -155,7 +155,7 @@ test('panel API: the window\'s account is recognised from the desktop app alone,
     assert.equal(s.leader.email, 'lead@x.com');
     assert.equal(s.desktop.pending, false);
 
-    desktopSession(U2, 5); // the user switched the window to an account Baton has never seen
+    desktopSession(U2, 5); // the user switched the window to an account Relay has never seen
     s = await state();
     assert.equal(s.leader, null, 'the old leader is not shown as current after a switch');
     assert.equal(s.desktop.pending, true);

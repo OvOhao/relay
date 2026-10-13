@@ -1,8 +1,8 @@
 'use strict';
-// Connects Baton to Claude Code: adds a `StopFailure` hook to the user's ~/.claude/settings.json.
+// Connects Relay to Claude Code: adds a `StopFailure` hook to the user's ~/.claude/settings.json.
 // Claude Code (CLI, VS Code and the desktop app's Code tab all read that file) then calls the
-// hook script whenever a turn ends on an API error; the script forwards it to the running Baton.
-// The hook is observational only: it cannot make Claude continue, which is why Baton takes over.
+// hook script whenever a turn ends on an API error; the script forwards it to the running Relay.
+// The hook is observational only: it cannot make Claude continue, which is why Relay takes over.
 //
 // We only ever touch our own hook entry, back the file up first, and refuse to edit a
 // settings.json we cannot parse.
@@ -14,23 +14,23 @@ const store = require('./store');
 const setup = require('./setup');
 const fslock = require('./fslock');
 
-const MARK = 'baton-hook';
+const MARK = 'relay-hook';
 const settingsPath = () => path.join(setup.hubDir(), 'settings.json');
 const binDir = () => path.join(store.home(), 'bin');
 const connectFile = () => path.join(store.home(), 'connect.json');
 const fwd = (p) => p.replace(/\\/g, '/');
 
-const PS1 = `# Forwards a Claude Code StopFailure event to the running Baton. Never blocks or fails Claude.
+const PS1 = `# Forwards a Claude Code StopFailure event to the running Relay. Never blocks or fails Claude.
 try {
   $conn = Get-Content -Raw -Encoding UTF8 (Join-Path $PSScriptRoot '..\\connect.json') | ConvertFrom-Json
   $in = [Console]::OpenStandardInput(); $ms = New-Object IO.MemoryStream; $in.CopyTo($ms)
   $h = @{
-    'x-baton-token' = [string]$conn.token
-    'x-baton-config-dir' = [uri]::EscapeDataString([string]$env:CLAUDE_CONFIG_DIR)
-    'x-baton-takeover' = [string]$env:BATON_TAKEOVER
-    'x-baton-email' = [uri]::EscapeDataString([string]$env:CLAUDE_CODE_USER_EMAIL)
-    'x-baton-account-uuid' = [string]$env:CLAUDE_CODE_ACCOUNT_UUID
-    'x-baton-entrypoint' = [string]$env:CLAUDE_CODE_ENTRYPOINT
+    'x-relay-token' = [string]$conn.token
+    'x-relay-config-dir' = [uri]::EscapeDataString([string]$env:CLAUDE_CONFIG_DIR)
+    'x-relay-takeover' = [string]$env:RELAY_TAKEOVER
+    'x-relay-email' = [uri]::EscapeDataString([string]$env:CLAUDE_CODE_USER_EMAIL)
+    'x-relay-account-uuid' = [string]$env:CLAUDE_CODE_ACCOUNT_UUID
+    'x-relay-entrypoint' = [string]$env:CLAUDE_CODE_ENTRYPOINT
   }
   Invoke-RestMethod -Uri ("http://127.0.0.1:" + $conn.port + "/hook") -Method Post -Headers $h -ContentType 'application/json' -Body $ms.ToArray() -TimeoutSec 5 | Out-Null
 } catch { }
@@ -38,13 +38,13 @@ exit 0
 `;
 
 const SH = `#!/bin/sh
-# Forwards a Claude Code StopFailure event to the running Baton. Never blocks or fails Claude.
+# Forwards a Claude Code StopFailure event to the running Relay. Never blocks or fails Claude.
 dir="$(cd "$(dirname "$0")/.." && pwd)"
 port=$(sed -n 's/.*"port": *\\([0-9]*\\).*/\\1/p' "$dir/connect.json")
 token=$(sed -n 's/.*"token": *"\\([^"]*\\)".*/\\1/p' "$dir/connect.json")
-curl -s -m 5 -X POST -H "x-baton-token: $token" -H "x-baton-config-dir: $CLAUDE_CONFIG_DIR" \\
-  -H "x-baton-takeover: $BATON_TAKEOVER" -H "x-baton-email: $CLAUDE_CODE_USER_EMAIL" -H "x-baton-account-uuid: $CLAUDE_CODE_ACCOUNT_UUID" \\
-  -H "x-baton-entrypoint: $CLAUDE_CODE_ENTRYPOINT" -H 'content-type: application/json' --data-binary @- \\
+curl -s -m 5 -X POST -H "x-relay-token: $token" -H "x-relay-config-dir: $CLAUDE_CONFIG_DIR" \\
+  -H "x-relay-takeover: $RELAY_TAKEOVER" -H "x-relay-email: $CLAUDE_CODE_USER_EMAIL" -H "x-relay-account-uuid: $CLAUDE_CODE_ACCOUNT_UUID" \\
+  -H "x-relay-entrypoint: $CLAUDE_CODE_ENTRYPOINT" -H 'content-type: application/json' --data-binary @- \\
   "http://127.0.0.1:$port/hook" >/dev/null 2>&1
 exit 0
 `;
@@ -67,7 +67,7 @@ function readSettings() {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch (e) {
-    throw new Error(`${file} is not valid JSON (${e.message}). Fix it first; Baton will not touch it.`);
+    throw new Error(`${file} is not valid JSON (${e.message}). Fix it first; Relay will not touch it.`);
   }
 }
 
@@ -76,7 +76,17 @@ function writeSettings(obj) {
   fslock.writeFileAtomic(file, `${JSON.stringify(obj, null, 2)}\n`); // unique temp name + retried rename
 }
 
-const isOurs = (entry) => (entry.hooks || []).some((h) => String(h.command || '').includes(MARK));
+const LEGACY_MARK = 'baton-hook'; // from when Relay was called Baton: replaced on install, removed on uninstall
+const isOurs = (entry) => (entry.hooks || []).some((h) => [MARK, LEGACY_MARK].some((m) => String(h.command || '').includes(m)));
+const isLegacy = (entry) => (entry.hooks || []).some((h) => String(h.command || '').includes(LEGACY_MARK));
+
+// Whether settings.json still has hooks from when Relay was called Baton.
+function legacyInstalled() {
+  try {
+    const hooks = readSettings().hooks || {};
+    return EVENTS.some((ev) => (hooks[ev] || []).some(isLegacy));
+  } catch { return false; }
+}
 
 const EVENTS = ['StopFailure', 'SessionStart'];
 
@@ -92,7 +102,7 @@ function status() {
 function install() {
   const settings = readSettings();
   const file = settingsPath();
-  const backup = `${file}.baton-backup`;
+  const backup = `${file}.relay-backup`;
   if (fs.existsSync(file) && !fs.existsSync(backup)) fs.copyFileSync(file, backup);
 
   const command = hookCommand();
@@ -122,7 +132,7 @@ function uninstall() {
   return status();
 }
 
-// Called by the server on startup: tells the hook script where Baton is listening.
+// Called by the server on startup: tells the hook script where Relay is listening.
 function writeConnect(port) {
   const token = crypto.randomBytes(24).toString('hex');
   fs.mkdirSync(store.home(), { recursive: true });
@@ -130,4 +140,4 @@ function writeConnect(port) {
   return token;
 }
 
-module.exports = { install, uninstall, status, writeConnect, settingsPath };
+module.exports = { install, uninstall, status, writeConnect, settingsPath, legacyInstalled };

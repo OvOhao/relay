@@ -1,5 +1,5 @@
 'use strict';
-// Account registry + app settings, persisted as small JSON files under BATON_HOME.
+// Account registry + app settings, persisted as small JSON files under RELAY_HOME.
 // Claude's own credentials are never read here: each account just points at a config dir
 // that Claude Code manages itself.
 
@@ -8,7 +8,14 @@ const os = require('os');
 const path = require('path');
 const fslock = require('./fslock');
 
-const home = () => process.env.BATON_HOME || path.join(os.homedir(), '.baton');
+const home = () => process.env.RELAY_HOME || path.join(os.homedir(), '.relay');
+// Relay used to be called Baton and kept its data in ~/.baton. The sign-in folders made back then stay there: on macOS
+// each login is a Keychain entry tied to its folder's path, so moving a folder would sign that account out.
+// (Tests set RELAY_HOME; they only see a legacy folder when they name one.)
+const legacyHome = () => process.env.RELAY_LEGACY_HOME || (process.env.RELAY_HOME ? '' : path.join(os.homedir(), '.baton'));
+// Every folder Relay keeps sign-in folders in: its own, and the one from when it was Baton.
+const accountRoots = () => [path.join(home(), 'accounts'), ...(legacyHome() ? [path.join(legacyHome(), 'accounts')] : [])];
+const ownsConfigDir = (dir) => accountRoots().some((r) => path.resolve(dir).startsWith(path.resolve(r) + path.sep));
 const accountsFile = () => path.join(home(), 'accounts.json');
 const settingsFile = () => path.join(home(), 'settings.json');
 const nowSec = () => Date.now() / 1000;
@@ -36,7 +43,7 @@ function readJson(file, fallback) {
 const writeJson = (file, data) => fslock.writeJson(file, data, { backup: true });
 
 // Every change is a read-modify-write under a cross-process lock, re-reading the file inside it: several Claude
-// windows' Baton processes and the Baton app all change the same files, and none may lose another's update.
+// windows' Relay processes and the Relay app all change the same files, and none may lose another's update.
 // `change` returns the new content, or undefined to leave the file as it is.
 function mutate(file, fallback, change) {
   return fslock.withFileLock(file, () => {
@@ -88,7 +95,7 @@ const markUsed = (name) => update(name, { lastUsed: nowSec() });
 const leaderFile = () => path.join(home(), 'leader.json');
 const getLeaderSeen = () => readJson(leaderFile(), null);
 
-// The desktop app identifies an account by UUID in the places Baton can see without a session, and by e-mail
+// The desktop app identifies an account by UUID in the places Relay can see without a session, and by e-mail
 // inside a session. Whenever a session reports both, remember the pairing (neither is a secret).
 const uuidFile = () => path.join(home(), 'account-uuids.json');
 const cleanUuid = (u) => (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(u || '').trim()) ? String(u).trim().toLowerCase() : '');
@@ -151,7 +158,7 @@ function earliestUnblock(now = nowSec(), filter = null) {
   return times.length ? Math.min(...times) : null;
 }
 
-// startAtLogin defaults to on: the hooks and the tool can only reach a Baton that is running.
+// startAtLogin defaults to on: the hooks and the tool can only reach a Relay that is running.
 const DEFAULT_SETTINGS = { permissionMode: 'acceptEdits', extraArgs: '', claudePath: '', startAtLogin: true, language: 'en' };
 const cleanLanguage = (l) => (l === 'zh' ? 'zh' : 'en');
 const loadSettings = () => ({ ...DEFAULT_SETTINGS, ...readJson(settingsFile(), {}) });
@@ -162,7 +169,7 @@ const saveSettings = (patch) => mutate(settingsFile(), {}, (cur) => {
 });
 
 module.exports = {
-  home, load, save, get, upsert, remove, update, newAccount, isReady, cleanModel,
+  home, legacyHome, accountRoots, ownsConfigDir, load, save, get, upsert, remove, update, newAccount, isReady, cleanModel,
   markLimited, markNeedsLogin, markUsed, setDesktop, observeLeader, getLeaderSeen, rememberAccountUuid, emailForUuid, nextAvailable, earliestUnblock,
   loadSettings, saveSettings, nowSec,
 };

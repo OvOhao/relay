@@ -7,5 +7,5 @@ Thumbs.db
 # film sources and renders are not part of the repository
 promo/
 
-site/img/*.log
 .baton/
+.relay/

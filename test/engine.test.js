@@ -8,16 +8,16 @@ const path = require('path');
 const FAKE = path.join(__dirname, 'fake-claude.js');
 
 function sandbox(plan, accountNames = ['a', 'b']) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'baton-test-'));
-  process.env.BATON_HOME = path.join(root, 'home');
-  process.env.BATON_HUB = path.join(root, 'hub');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-test-'));
+  process.env.RELAY_HOME = path.join(root, 'home');
+  process.env.RELAY_HUB = path.join(root, 'hub');
   process.env.FAKE_STATE = path.join(root, 'state');
   process.env.FAKE_PLAN = JSON.stringify(plan);
-  process.env.BATON_CLAUDE_CMD = JSON.stringify([process.execPath, FAKE]);
-  process.env.BATON_TICK = '0.05';
-  process.env.BATON_SLACK = '0';
+  process.env.RELAY_CLAUDE_CMD = JSON.stringify([process.execPath, FAKE]);
+  process.env.RELAY_TICK = '0.05';
+  process.env.RELAY_SLACK = '0';
   fs.mkdirSync(process.env.FAKE_STATE, { recursive: true });
-  fs.mkdirSync(process.env.BATON_HUB, { recursive: true });
+  fs.mkdirSync(process.env.RELAY_HUB, { recursive: true });
   const store = require('../src/core/store');
   store.save(accountNames.map((n) => store.newAccount(n, path.join(root, 'home', 'accounts', n))));
   const { Engine } = require('../src/core/engine');

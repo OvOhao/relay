@@ -14,9 +14,9 @@ const { Engine } = require('./engine');
 
 const isWorker = (a) => !a.desktop;
 const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
-const MAX_WAIT_SEC = Number(process.env.BATON_MAX_WAIT || 120); // never leave the dispatcher hanging for hours
+const MAX_WAIT_SEC = Number(process.env.RELAY_MAX_WAIT || 120); // never leave the dispatcher hanging for hours
 // How long a job waits for another job in the same folder before answering BUSY (read per call: tests shorten it).
-const queueWaitSec = () => Number(process.env.BATON_QUEUE_WAIT_SEC || 1800);
+const queueWaitSec = () => Number(process.env.RELAY_QUEUE_WAIT_SEC || 1800);
 const QUEUE_POLL_MS = 500;
 const WAIT_REPORT_MS = 4000;
 
@@ -90,7 +90,7 @@ function buildPrompt({ task, context, ledger, resumed }) {
     ].filter((x) => x !== '').join('\n');
   }
   return [
-    'You are a worker agent dispatched by Baton for another Claude session (the "dispatcher") that talks to the user.',
+    'You are a worker agent dispatched by Relay for another Claude session (the "dispatcher") that talks to the user.',
     'You cannot see their conversation: everything you need is below. Work in the current folder.',
     '',
     '## Task',
@@ -110,7 +110,7 @@ function buildPrompt({ task, context, ledger, resumed }) {
 }
 
 async function runWorker({ task, context = '', cwd, thread = '', readOnly = false, model = '', title = '', account = '', onProgress = () => {}, signal = null }) {
-  if (!task || !String(task).trim()) return { ok: false, code: 'bad_request', text: 'baton_run needs a task.' };
+  if (!task || !String(task).trim()) return { ok: false, code: 'bad_request', text: 'relay_run needs a task.' };
   const cleaned = store.cleanModel(model);
   if (cleaned === null) return { ok: false, code: 'bad_request', text: `model must be a model alias or id such as "haiku" or "claude-haiku-5-5" (got: ${String(model).slice(0, 40)}).` };
   model = cleaned;
@@ -118,7 +118,7 @@ async function runWorker({ task, context = '', cwd, thread = '', readOnly = fals
 
   const workers = store.load().filter((a) => isWorker(a) && !a.needsLogin);
   if (!workers.length) {
-    return { ok: false, code: 'no_workers', text: 'NO_WORKER_AVAILABLE: Baton has no worker accounts signed in (the leader account is this window). Do the work yourself, or ask the user to add another account in Baton.' };
+    return { ok: false, code: 'no_workers', text: 'NO_WORKER_AVAILABLE: Relay has no worker accounts signed in (the leader account is this window). Do the work yourself, or ask the user to add another account in Relay.' };
   }
 
   const runId = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -143,7 +143,7 @@ async function runWorker({ task, context = '', cwd, thread = '', readOnly = fals
     memory.removeRun(runId);
     if (got.cancelled) return { ok: false, code: 'cancelled', text: 'Cancelled while waiting for the folder; nothing was started.' };
     const sec = queueWaitSec();
-    return { ok: false, code: 'busy', text: `BUSY: another Baton worker (thread "${got.busy.thread || '?'}") is still working in this folder after waiting ${sec >= 60 ? `${Math.round(sec / 60)} min` : `${sec} s`}. Wait for it, or work on something else.` };
+    return { ok: false, code: 'busy', text: `BUSY: another Relay worker (thread "${got.busy.thread || '?'}") is still working in this folder after waiting ${sec >= 60 ? `${Math.round(sec / 60)} min` : `${sec} s`}. Wait for it, or work on something else.` };
   }
   const lock = got.lock;
   run.status = 'running';
@@ -161,13 +161,13 @@ async function runWorker({ task, context = '', cwd, thread = '', readOnly = fals
     engine = new Engine();
     engine.filter = isWorker;
     engine.maxWait = MAX_WAIT_SEC;
-    if (account) { // run on this worker (by name or e-mail) when it is ready; otherwise Baton picks one
+    if (account) { // run on this worker (by name or e-mail) when it is ready; otherwise Relay picks one
       const want = String(account).trim().toLowerCase();
       const a = workers.find((w) => w.name.toLowerCase() === want || (w.email || '').toLowerCase() === want);
       if (a) engine.account = a.name;
     }
     engine.model = model; // asked for in this call: wins over the account's default model
-    engine.useAccountModel = true; // otherwise each worker account runs on the model chosen for it in Baton
+    engine.useAccountModel = true; // otherwise each worker account runs on the model chosen for it in Relay
     if (existing?.sessionId) { engine.sessionId = existing.sessionId; engine.account = existing.account || null; }
 
     const prompt = buildPrompt({
@@ -245,7 +245,7 @@ async function runWorker({ task, context = '', cwd, thread = '', readOnly = fals
   return {
     ok: true, code: 'done', sessionId: engine.sessionId, thread, account: who,
     text: [
-      `[baton] worker ${who}${modelUsed ? ` · model ${modelUsed}` : ''}${thread ? ` · thread "${thread}"` : ''} finished.`,
+      `[relay] worker ${who}${modelUsed ? ` · model ${modelUsed}` : ''}${thread ? ` · thread "${thread}"` : ''} finished.`,
       thread ? `Continue this line of work later with the same thread name; the worker remembers everything.` : '',
       '',
       report || '(the worker returned no text)',
@@ -255,10 +255,10 @@ async function runWorker({ task, context = '', cwd, thread = '', readOnly = fals
   };
 }
 
-// For baton_status: who is leader, who are workers, how much each has used.
+// For relay_status: who is leader, who are workers, how much each has used.
 function statusText(cwd) {
   const cache = usage.readCache();
-  const lines = ['Baton accounts:'];
+  const lines = ['Relay accounts:'];
   const accounts = store.load();
   if (!accounts.length) lines.push('  (none yet)');
   for (const a of accounts) {
@@ -268,7 +268,7 @@ function statusText(cwd) {
     lines.push(`  - ${label(a)} [${a.desktop ? 'LEADER: this window, do not delegate to it' : 'worker'}] ${state}${bits ? ` (${bits})` : ''}`);
   }
   const seen = store.getLeaderSeen();
-  if (seen && !seen.registered) lines.push(`  Note: this window is signed in as ${seen.email}, which is not in Baton's pool.`);
+  if (seen && !seen.registered) lines.push(`  Note: this window is signed in as ${seen.email}, which is not in Relay's pool.`);
   if (cwd && path.isAbsolute(cwd)) {
     const threads = memory.listThreads(cwd);
     const names = Object.keys(threads);

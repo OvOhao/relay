@@ -8,7 +8,7 @@ const { spawn } = require('child_process');
 const store = require('./store');
 
 // A worker must run exactly like a standalone Claude Code signed in as that one account. A process that
-// Baton starts from inside a Claude session (the MCP tool does) would otherwise inherit the HOST's
+// Relay starts from inside a Claude session (the MCP tool does) would otherwise inherit the HOST's
 // variables: API keys / tokens that would bill the wrong thing, "host handles auth", "simple mode",
 // the host's session, e-mail and socket. Strip all of them; keep only what Claude Code genuinely needs.
 const HOST_VARS = /^(ANTHROPIC_|CLAUDE_CODE_|CLAUDE_AGENT_SDK|CLAUDE_PREVIEW_|USE_(LOCAL|STAGING)_OAUTH$|CLAUDECODE$|CLAUDE_PID$|CLAUDE_EFFORT$|CLAUDE_CONFIG_DIR$)/;
@@ -22,14 +22,19 @@ function cleanEnv(base = process.env) {
 
 // The Claude desktop app ships and updates its own Claude Code. Prefer the newest build found there:
 // older builds do not know commands such as /usage and may not understand newer session files.
+// Windows / Linux: <root>/<version>/<build>/claude(.exe). macOS: the build is a signed app bundle,
+// <root>/<version>/<build>/claude.app/Contents/MacOS/claude.
+const BUNDLE_EXES = () => (process.platform === 'win32'
+  ? ['claude.exe']
+  : ['claude', path.join('claude.app', 'Contents', 'MacOS', 'claude')]);
+
 function bundledClaudes() {
   const h = os.homedir();
-  const roots = [
+  const roots = process.env.RELAY_BUNDLED_DIR ? [process.env.RELAY_BUNDLED_DIR] : [ // tests
     process.env.APPDATA && path.join(process.env.APPDATA, 'Claude', 'claude-code'),
     path.join(h, 'Library', 'Application Support', 'Claude', 'claude-code'),
     path.join(h, '.config', 'Claude', 'claude-code'),
   ].filter(Boolean);
-  const exe = process.platform === 'win32' ? 'claude.exe' : 'claude';
   const found = [];
   for (const root of roots) {
     let versions = [];
@@ -38,8 +43,10 @@ function bundledClaudes() {
       let subs = [];
       try { subs = fs.readdirSync(path.join(root, v)); } catch { continue; }
       for (const sub of subs) {
-        const p = path.join(root, v, sub, exe);
-        try { if (fs.statSync(p).isFile()) found.push({ version: v, path: p }); } catch { /* not a build dir */ }
+        for (const exe of BUNDLE_EXES()) {
+          const p = path.join(root, v, sub, exe);
+          try { if (fs.statSync(p).isFile()) { found.push({ version: v, path: p }); break; } } catch { /* not a build dir */ }
+        }
       }
     }
   }
@@ -74,11 +81,11 @@ function findClaude() {
       } catch { /* keep looking */ }
     }
   }
-  throw new Error('Claude Code was not found. Install it from https://claude.com/claude-code, then reopen Baton.');
+  throw new Error('Claude Code was not found. Install it from https://claude.com/claude-code, then reopen Relay.');
 }
 
 function claudeCmd() {
-  const raw = process.env.BATON_CLAUDE_CMD; // test hook: JSON array or a single path
+  const raw = process.env.RELAY_CLAUDE_CMD; // test hook: JSON array or a single path
   if (raw) return raw.trim().startsWith('[') ? JSON.parse(raw) : [raw];
   const custom = store.loadSettings().claudePath;
   return [custom || findClaude()];
@@ -88,10 +95,16 @@ function accountEnv(acct, extra = {}) {
   return { ...cleanEnv(), CLAUDE_CONFIG_DIR: acct.configDir, ...extra };
 }
 
+// `group: true` (worker and takeover runs): on macOS / Linux the run gets its own process group, so stopping it
+// also stops whatever it started (a test runner, a dev server) instead of leaving those running.
 function spawnClaude(args, opts = {}) {
   const [cmd, ...pre] = claudeCmd();
   const shell = /\.(cmd|bat)$/i.test(cmd); // npm-installed shims need a shell on Windows
-  return spawn(cmd, [...pre, ...args], { windowsHide: true, shell, ...opts });
+  const { group, ...rest } = opts;
+  const own = !!group && process.platform !== 'win32';
+  const child = spawn(cmd, [...pre, ...args], { windowsHide: true, shell, ...(own ? { detached: true } : {}), ...rest });
+  if (own) child.relayGroup = true;
+  return child;
 }
 
 // `claude auth status` only inspects local credentials: a stale token can still say loggedIn.
@@ -122,6 +135,8 @@ function killTree(child) {
   if (!child || child.exitCode !== null) return;
   if (process.platform === 'win32') {
     spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+  } else if (child.relayGroup && child.pid) {
+    try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill('SIGTERM'); } // the whole group, or at least the run
   } else {
     child.kill('SIGTERM');
   }

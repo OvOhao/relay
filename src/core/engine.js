@@ -79,7 +79,7 @@ function runOnce(acct, { prompt, cwd, sessionId, extraArgs, permissionMode, mode
 
     let child;
     try {
-      child = spawnClaude(args, { cwd: cwd || undefined, env: accountEnv(acct, { BATON_TAKEOVER: '1' }), stdio: ['pipe', 'pipe', 'pipe'] });
+      child = spawnClaude(args, { cwd: cwd || undefined, env: accountEnv(acct, { RELAY_TAKEOVER: '1' }), stdio: ['pipe', 'pipe', 'pipe'], group: true });
     } catch (e) {
       return reject(e);
     }
@@ -116,8 +116,8 @@ function runOnce(acct, { prompt, cwd, sessionId, extraArgs, permissionMode, mode
 class Engine extends EventEmitter {
   constructor() {
     super();
-    this.tick = Number(process.env.BATON_TICK || 30) * 1000;
-    this.slack = Number(process.env.BATON_SLACK || 5) * 1000;
+    this.tick = Number(process.env.RELAY_TICK || 30) * 1000;
+    this.slack = Number(process.env.RELAY_SLACK || 5) * 1000;
     this.newChat(true);
   }
 
@@ -173,7 +173,7 @@ class Engine extends EventEmitter {
   }
 
   // The account for the next attempt: the preferred one (an explicit choice, or the account a resumed session
-  // lives on) while it is ready; otherwise the ready account with the fewest Baton runs on it right now, then the
+  // lives on) while it is ready; otherwise the ready account with the fewest Relay runs on it right now, then the
   // least recently used, then registry order. Several windows start jobs at the same moment, so choosing and
   // reserving (lastUsed + this run's account in its run file, via onReserve) happen under one cross-process lock:
   // the next window to choose already sees this reservation.
@@ -292,7 +292,7 @@ class Engine extends EventEmitter {
   }
 }
 
-// How many Baton runs use each account right now: the live run files of every process (each Claude window's Baton
+// How many Relay runs use each account right now: the live run files of every process (each Claude window's Relay
 // tool writes one per job) plus this process's own engines (counted once: its own run files are skipped).
 function activeRuns() {
   const count = new Map();

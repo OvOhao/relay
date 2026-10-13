@@ -1,5 +1,5 @@
 'use strict';
-// `Baton.exe --disconnect`: used by the Windows uninstaller to take Baton out of Claude Code (the "baton" tool,
+// `Relay.exe --disconnect`: used by the Windows uninstaller to take Relay out of Claude Code (the "relay" tool,
 // the skill and the two hooks). It never opens a window, never touches the saved account sign-ins, and never
 // throws: whatever happens, the caller gets a one-line message and can exit 0 so an uninstaller is never blocked.
 
@@ -15,9 +15,9 @@ async function disconnect({ uninstall = connect.uninstall, limitMs = LIMIT_MS } 
       new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timed out')), limitMs); }),
     ]);
     const left = st && st.all === false && (st.hook || st.skill || st.mcp);
-    return left ? 'Baton disconnect: finished, but some wiring is still in place.' : 'Baton disconnect: removed from Claude Code (saved sign-ins kept).';
+    return left ? 'Relay disconnect: finished, but some wiring is still in place.' : 'Relay disconnect: removed from Claude Code (saved sign-ins kept).';
   } catch (e) {
-    return `Baton disconnect: could not finish (${(e && e.message) || e}).`;
+    return `Relay disconnect: could not finish (${(e && e.message) || e}).`;
   } finally {
     clearTimeout(timer);
   }

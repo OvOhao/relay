@@ -1,21 +1,25 @@
 #!/usr/bin/env node
 'use strict';
-// Terminal companion to the Baton panel. Sign-in runs Claude Code's own `claude auth login` in
+// Terminal companion to the Relay panel. Sign-in runs Claude Code's own `claude auth login` in
 // this terminal, so the browser / code flow is exactly the one you already know.
-//   baton add [--email you@x.com] [--name acct-b] [--desktop]
-//   baton login <name>        sign in again
-//   baton list                accounts and their state
-//   baton desktop <name>      mark the account your Claude desktop app is signed in to
-//   baton remove <name>
-//   baton connect | disconnect       wire Baton into Claude Code (hooks, tool, skill) or take it out again
-//   baton remove-all [--logins]      disconnect; with --logins also delete every saved sign-in, profile and note
+//   relay add [--email you@x.com] [--name acct-b] [--desktop]
+//   relay login <name>        sign in again
+//   relay list                accounts and their state
+//   relay desktop <name>      mark the account your Claude desktop app is signed in to
+//   relay remove <name>
+//   relay connect | disconnect       wire Relay into Claude Code (hooks, tool, skill) or take it out again
+//   relay remove-all [--logins]      disconnect; with --logins also delete every saved sign-in, profile and note
 
+const path = require('path');
 const { spawn } = require('child_process');
 const store = require('./core/store');
 const setup = require('./core/setup');
 const hook = require('./core/hook');
 const connect = require('./core/connect');
+const platform = require('./core/platform');
 const { spawnClaude, accountEnv, authStatus } = require('./core/claude');
+
+require('./core/migrate').migrateHome(); // Relay used to be called Baton: bring ~/.baton over first (sign-ins stay)
 
 const [cmd, ...rest] = process.argv.slice(2);
 const flag = (name) => {
@@ -44,7 +48,7 @@ function runLogin(acct) {
       console.log(`\n✓ ${acct.name}: signed in as ${info.email} (${info.subscriptionType || 'unknown plan'})`);
       return true;
     }
-    console.log(`\n✗ ${acct.name}: sign-in did not finish (exit ${code}). Run \`baton login ${acct.name}\` to retry.`);
+    console.log(`\n✗ ${acct.name}: sign-in did not finish (exit ${code}). Run \`relay login ${acct.name}\` to retry.`);
     return false;
   });
 }
@@ -67,13 +71,13 @@ async function main() {
     }
     case 'login': {
       const acct = store.get(rest[0]);
-      if (!acct) throw new Error(`no account named "${rest[0]}" (see \`baton list\`)`);
+      if (!acct) throw new Error(`no account named "${rest[0]}" (see \`relay list\`)`);
       await runLogin(acct);
       break;
     }
     case 'list': {
       const accounts = store.load();
-      if (!accounts.length) return console.log('No accounts yet. Add one with `baton add`.');
+      if (!accounts.length) return console.log('No accounts yet. Add one with `relay add`.');
       for (const a of accounts) {
         const state = a.needsLogin ? 'SIGN IN NEEDED' : a.blockedUntil > store.nowSec() ? `limited until ${fmt(a.blockedUntil)} (${a.blockedReason})` : 'ready';
         console.log(`${a.desktop ? '★' : ' '} ${a.name.padEnd(12)} ${(a.email || '-').padEnd(34)} ${(a.plan || '-').padEnd(6)} ${state}`);
@@ -90,8 +94,10 @@ async function main() {
     case 'remove': {
       const acct = store.get(rest[0]);
       if (!acct) throw new Error(`no account named "${rest[0]}"`);
+      const own = store.ownsConfigDir(acct.configDir);
+      if (own) await platform.forgetLogin(acct); // macOS: the login lives in the Keychain, not in the folder
       store.remove(acct.name);
-      setup.removeConfigDir(acct.configDir);
+      if (own) setup.removeConfigDir(acct.configDir);
       console.log(`removed ${acct.name}`);
       break;
     }
@@ -109,20 +115,20 @@ async function main() {
       const logins = rest.includes('--logins');
       await connect.removeAll({ logins });
       console.log(logins
-        ? 'Baton was removed from Claude Code and all of its data, including saved sign-ins, was deleted.'
-        : 'Baton was removed from Claude Code. Saved account sign-ins were kept (add --logins to delete them too).');
+        ? 'Relay was removed from Claude Code and all of its data, including saved sign-ins, was deleted.'
+        : 'Relay was removed from Claude Code. Saved account sign-ins were kept (add --logins to delete them too).');
       break;
     }
     case 'hook': {
       const sub = rest[0];
-      if (!['install', 'uninstall', 'status'].includes(sub)) throw new Error('usage: baton hook install|uninstall|status');
+      if (!['install', 'uninstall', 'status'].includes(sub)) throw new Error('usage: relay hook install|uninstall|status');
       const s = hook[sub]();
       console.log(`hook ${s.installed ? 'INSTALLED' : 'not installed'} in ${s.settingsPath}`);
       break;
     }
     default:
-      console.log('baton add | login <name> | list | desktop <name> | remove <name> | connect | disconnect | remove-all | hook install|uninstall|status');
+      console.log('relay add | login <name> | list | desktop <name> | remove <name> | connect | disconnect | remove-all | hook install|uninstall|status');
   }
 }
 
-main().catch((e) => { console.error(`baton: ${e.message}`); process.exitCode = 1; });
+main().catch((e) => { console.error(`relay: ${e.message}`); process.exitCode = 1; });

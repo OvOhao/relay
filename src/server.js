@@ -19,6 +19,7 @@ const { reconcile } = require('./core/reconcile');
 const { startLogin, openLoginPage } = require('./core/login');
 const { authStatus, claudeCmd } = require('./core/claude');
 const { Takeovers } = require('./core/takeover');
+const platform = require('./core/platform');
 const { PERMISSION_MODES } = require('./core/engine');
 
 const UI_DIR = path.join(__dirname, '..', 'ui');
@@ -33,6 +34,12 @@ function slug(email) {
   return name;
 }
 const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => k in obj).map((k) => [k, obj[k]]));
+// The Windows hook sends these percent-encoded; the macOS / Linux one (sh + curl) sends them as they are. A raw value
+// with a stray "%" must not turn the whole event into a 400.
+const header = (v) => {
+  const s = String(v || '');
+  try { return decodeURIComponent(s); } catch { return s; }
+};
 
 // Every call from the Claude Code hook leaves a line here, so "did it fire?" is answerable later.
 let removed = false;
@@ -66,7 +73,8 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
     const busy = new Set([...takeovers.snapshot().active, ...memory.listRuns()].filter((j) => j.status === 'running').map((j) => j.account));
     return store.load().map((a) => ({
       usage: cache[a.name]?.data || null,
-      usageAt: cache[a.name]?.at || null,
+      usageAt: cache[a.name]?.okAt || null, // when the numbers shown were read
+      usageTriedAt: cache[a.name]?.at || null, // when Relay last tried (a failed try does not make old numbers new)
       usageError: cache[a.name]?.error || null,
       usageBusy: usage.isBusy(a.name),
       name: a.name,
@@ -91,7 +99,7 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
   }
 
   // Whether the command-line Claude Code in ~/.claude is signed in. Only that login can be "adopted" with one click;
-  // the desktop app keeps its own sign-in inside the app, which Baton neither can nor should read.
+  // the desktop app keeps its own sign-in inside the app, which Relay neither can nor should read.
   let cli = { checkedAt: 0, loggedIn: false, email: '' };
   let cliProbing = false;
   function probeCli() {
@@ -114,6 +122,17 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
     return { leader: stale ? null : seen, desktop: { detected: !!d, pending: !!d && !known && (stale || !seen) } };
   }
 
+  // Other tools that undo Relay's sign-ins. clauth (another multi-account manager) deletes, at every Claude Code
+  // session start, each per-folder Keychain login it cannot match to one of its own folders: that includes every
+  // Relay account on macOS. Relay cannot stop it, so it says so instead of showing "sign in needed" with no reason.
+  function conflicts() {
+    if (process.platform !== 'darwin' && !process.env.RELAY_CHECK_CONFLICTS) return [];
+    try {
+      const plugins = JSON.parse(fs.readFileSync(path.join(setup.hubDir(), 'settings.json'), 'utf8')).enabledPlugins || {};
+      return Object.entries(plugins).some(([k, on]) => on && /^clauth@/.test(k)) ? ['clauth'] : [];
+    } catch { return []; }
+  }
+
   const fullState = () => {
     syncLeaderFromDesktop();
     probeCli();
@@ -128,15 +147,17 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
       settings: store.loadSettings(),
       login,
       claudeProblem: claudeProblem(),
+      conflicts: conflicts(),
       permissionModes: PERMISSION_MODES,
       canAutoStart: typeof shell.setAutoStart === 'function',
+      platform: process.platform, // the panel names the menu bar and "this Mac" instead of the tray and Windows
     };
   };
 
   const pushAccounts = () => broadcast('accounts', { accounts: publicAccounts(), ...leaderView() });
 
   // The desktop app puts the signed-in e-mail and account UUID in every session's environment; hooks and the MCP
-  // tool forward them here, so Baton knows who the leader is, including right after you switch accounts.
+  // tool forward them here, so Relay knows who the leader is, including right after you switch accounts.
   function observeIdentity(email, takeover, uuid = '') {
     if (!email || takeover || removed) return;
     const r = store.observeLeader(email, uuid);
@@ -161,11 +182,11 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
   }
   // Read the plan usage of accounts whose last reading is older than maxAgeMs. The panel hears about it twice:
   // when the readings start (so it can say "reading…") and again as each one lands.
-  function refreshUsage({ maxAgeMs = 0, names = null } = {}) {
+  function refreshUsage({ maxAgeMs = 0, names = null, recheck = false } = {}) {
     if (removed) return Promise.resolve();
-    const todo = usage.stale(maxAgeMs, names);
+    const todo = usage.stale(maxAgeMs, names, { recheck });
     if (!todo.length) return Promise.resolve();
-    const runs = todo.map((n) => usage.refresh(n));
+    const runs = todo.map((n) => usage.refresh(n, { recheck }));
     broadcast('usage', { accounts: publicAccounts() });
     return Promise.all(runs.map((p) => p.catch(() => {}).finally(() => broadcast('usage', { accounts: publicAccounts() }))));
   }
@@ -210,7 +231,9 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
 
     'POST /api/settings': (body) => {
       const before = store.loadSettings().language;
-      const next = store.saveSettings(pick(body, ['permissionMode', 'extraArgs', 'startAtLogin', 'language']));
+      const patch = pick(body, ['permissionMode', 'extraArgs', 'startAtLogin', 'language', 'panelPinned']);
+      if ('panelPinned' in patch) patch.panelPinned = !!patch.panelPinned;
+      const next = store.saveSettings(patch);
       if ('startAtLogin' in body) shell.setAutoStart?.(!!next.startAtLogin);
       if (next.language !== before) shell.onLanguage?.(next.language);
       return next;
@@ -237,7 +260,7 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
       const probe = store.newAccount('main', hub);
       const info = await authStatus(probe);
       if (!info.loggedIn) {
-        throw new Error('No command-line Claude Code sign-in found. The Claude desktop app keeps its own sign-in inside the app, which Baton cannot see: it recognises that window by itself once you connect and start a session. Use “Add account” for your other accounts.');
+        throw new Error('No command-line Claude Code sign-in found. The Claude desktop app keeps its own sign-in inside the app, which Relay cannot see: it recognises that window by itself once you connect and start a session. Use “Add account” for your other accounts.');
       }
       store.upsert({ ...probe, name: slug(info.email || 'main'), email: info.email || '', plan: info.subscriptionType || '' });
       pushAccounts();
@@ -268,12 +291,14 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
       return { ok: true };
     },
 
-    'POST /api/accounts/remove': (body) => {
+    'POST /api/accounts/remove': async (body) => {
       const acct = store.get(body.name);
       if (!acct) return { ok: true };
       if (takeovers.snapshot().active.some((j) => j.account === acct.name)) throw new Error('A takeover is using this account. Stop it first.');
+      const own = store.ownsConfigDir(acct.configDir);
+      if (own) await platform.forgetLogin(acct); // macOS: the login lives in the Keychain, not in the folder
       store.remove(acct.name);
-      if (path.resolve(acct.configDir).startsWith(path.resolve(store.home(), 'accounts') + path.sep)) setup.removeConfigDir(acct.configDir);
+      if (own) setup.removeConfigDir(acct.configDir);
       fs.rmSync(path.join(store.home(), 'browser', acct.name), { recursive: true, force: true });
       pushAccounts();
       return { ok: true };
@@ -308,7 +333,7 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
     },
     // Returns at once: a reading takes 13-20 s, the panel follows it through the 'usage' events instead of waiting.
     'POST /api/usage/refresh': (body) => {
-      refreshUsage({ names: body.name ? [body.name] : null });
+      refreshUsage({ names: body.name ? [body.name] : null, recheck: true }); // pressed by you: signed-out ones too
       return { ok: true };
     },
 
@@ -332,8 +357,8 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
   function uiAuthorised(req, url) {
     const o = req.headers.origin;
     if (o && o !== origin && o !== `http://localhost:${port()}`) return false;
-    const cookie = (req.headers.cookie || '').split(/;\s*/).find((c) => c.startsWith('baton='));
-    return cookie === `baton=${uiToken}` || url.searchParams.get('t') === uiToken;
+    const cookie = (req.headers.cookie || '').split(/;\s*/).find((c) => c.startsWith('relay='));
+    return cookie === `relay=${uiToken}` || url.searchParams.get('t') === uiToken;
   }
 
   const server = http.createServer(async (req, res) => {
@@ -349,19 +374,19 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
 
     // Claude Code hook -> takeover
     if (req.method === 'POST' && url.pathname === '/hook') {
-      if (req.headers['x-baton-token'] !== hookToken) return json(403, { error: 'bad token' });
+      if (req.headers['x-relay-token'] !== hookToken) return json(403, { error: 'bad token' });
       try {
         const payload = JSON.parse((await readBody(req)).replace(/^﻿/, '')); // tolerate a UTF-8 BOM from the shell
         const meta = {
-          configDir: decodeURIComponent(req.headers['x-baton-config-dir'] || ''),
-          takeover: req.headers['x-baton-takeover'] || '',
-          email: decodeURIComponent(req.headers['x-baton-email'] || ''),
-          accountUuid: req.headers['x-baton-account-uuid'] || '',
-          entrypoint: req.headers['x-baton-entrypoint'] || '',
+          configDir: header(req.headers['x-relay-config-dir']),
+          takeover: req.headers['x-relay-takeover'] || '',
+          email: header(req.headers['x-relay-email']),
+          accountUuid: req.headers['x-relay-account-uuid'] || '',
+          entrypoint: req.headers['x-relay-entrypoint'] || '',
         };
         observeIdentity(meta.email, meta.takeover, meta.accountUuid);
         if (payload.hook_event_name === 'SessionStart') {
-          if (!meta.takeover) logEvent({ event: 'SessionStart', email: meta.email || null, entrypoint: meta.entrypoint || null, result: 'identity noted' }); // Baton's own runs would only fill the log
+          if (!meta.takeover) logEvent({ event: 'SessionStart', email: meta.email || null, entrypoint: meta.entrypoint || null, result: 'identity noted' }); // Relay's own runs would only fill the log
           return json(200, { identity: true });
         }
         const out = takeovers.handleHook(payload, meta);
@@ -374,7 +399,7 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
     }
 
     if (req.method === 'POST' && url.pathname === '/ident') {
-      if (req.headers['x-baton-token'] !== hookToken) return json(403, { error: 'bad token' });
+      if (req.headers['x-relay-token'] !== hookToken) return json(403, { error: 'bad token' });
       try {
         const body = JSON.parse((await readBody(req)).replace(/^\uFEFF/, ''));
         observeIdentity(String(body.email || ''), '', String(body.uuid || ''));
@@ -386,10 +411,10 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
 
     if (!uiAuthorised(req, url)) {
       res.writeHead(403, { 'content-type': 'text/plain' });
-      return res.end('Open Baton from its window.');
+      return res.end('Open Relay from its window.');
     }
     if (url.searchParams.get('t') === uiToken) {
-      res.writeHead(302, { 'set-cookie': `baton=${uiToken}; Path=/; HttpOnly; SameSite=Strict`, location: url.pathname });
+      res.writeHead(302, { 'set-cookie': `relay=${uiToken}; Path=/; HttpOnly; SameSite=Strict`, location: url.pathname });
       return res.end();
     }
 
@@ -453,7 +478,11 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
         if (removed) return;
         const runs = memory.listRuns();
         const sig = JSON.stringify(runs.map((r) => [r.id, r.status, r.account, r.lastLine]));
-        if (sig !== runsSig) { runsSig = sig; broadcast('runs', { runs, recent: memory.recentRuns(), accounts: publicAccounts() }); }
+        if (sig !== runsSig) {
+          runsSig = sig;
+          broadcast('runs', { runs, recent: memory.recentRuns(), accounts: publicAccounts() });
+          shell.onRuns?.(runs); // the menu-bar count includes jobs handed to workers, not only takeovers
+        }
       }, 2000).unref();
 
       resolve({ url: `${origin}/?t=${uiToken}`, origin, takeovers, refreshUsage, close: () => server.close() });

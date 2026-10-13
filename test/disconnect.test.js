@@ -9,16 +9,16 @@ const FAKE = path.join(__dirname, 'fake-claude.js');
 const SRC = path.join(__dirname, '..', 'src');
 
 function sandbox() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'baton-test-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-test-'));
   Object.assign(process.env, {
-    BATON_HOME: path.join(root, 'home'),
-    BATON_HUB: path.join(root, 'hub'),
+    RELAY_HOME: path.join(root, 'home'),
+    RELAY_HUB: path.join(root, 'hub'),
     FAKE_STATE: path.join(root, 'state'),
     FAKE_PLAN: '{}',
-    BATON_CLAUDE_CMD: JSON.stringify([process.execPath, FAKE]),
+    RELAY_CLAUDE_CMD: JSON.stringify([process.execPath, FAKE]),
   });
   fs.mkdirSync(process.env.FAKE_STATE, { recursive: true });
-  fs.mkdirSync(process.env.BATON_HUB, { recursive: true });
+  fs.mkdirSync(process.env.RELAY_HUB, { recursive: true });
   return root;
 }
 
@@ -31,7 +31,7 @@ test('--disconnect: wiring is removed, the saved sign-in stays, and it never thr
   fs.writeFileSync(settings, JSON.stringify(before));
   await connect.install();
   assert.equal(connect.status().all, true);
-  const login = path.join(process.env.BATON_HOME, 'accounts', 'w1', '.credentials.json');
+  const login = path.join(process.env.RELAY_HOME, 'accounts', 'w1', '.credentials.json');
   fs.mkdirSync(path.dirname(login), { recursive: true });
   fs.writeFileSync(login, '{"stand-in":"for a saved sign-in"}');
 

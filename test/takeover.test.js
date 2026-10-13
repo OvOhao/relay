@@ -8,19 +8,19 @@ const path = require('path');
 const FAKE = path.join(__dirname, 'fake-claude.js');
 
 function sandbox(plan, accounts = [['a', { desktop: true }], ['b', {}]]) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'baton-test-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-test-'));
   Object.assign(process.env, {
-    BATON_HOME: path.join(root, 'home'),
-    BATON_HUB: path.join(root, 'hub'),
+    RELAY_HOME: path.join(root, 'home'),
+    RELAY_HUB: path.join(root, 'hub'),
     FAKE_STATE: path.join(root, 'state'),
     FAKE_PLAN: JSON.stringify(plan),
-    BATON_CLAUDE_CMD: JSON.stringify([process.execPath, FAKE]),
-    BATON_TICK: '0.05',
-    BATON_SLACK: '0',
+    RELAY_CLAUDE_CMD: JSON.stringify([process.execPath, FAKE]),
+    RELAY_TICK: '0.05',
+    RELAY_SLACK: '0',
   });
   fs.mkdirSync(process.env.FAKE_STATE, { recursive: true });
   fs.mkdirSync(path.join(root, 'project'), { recursive: true });
-  fs.mkdirSync(process.env.BATON_HUB, { recursive: true });
+  fs.mkdirSync(process.env.RELAY_HUB, { recursive: true });
   const store = require('../src/core/store');
   store.save(accounts.map(([n, extra]) => ({ ...store.newAccount(n, path.join(root, 'home', 'accounts', n)), ...extra })));
   const { Takeovers } = require('../src/core/takeover');
@@ -129,7 +129,7 @@ test('installing the hook merges with existing hooks, backs up, and uninstalls c
   assert.deepEqual(after.hooks.Stop, before.hooks.Stop);
   assert.equal(after.hooks.StopFailure.length, 2, 'ours is added next to the user\'s own entry, once');
   assert.equal(after.hooks.StopFailure.find((e) => e.matcher === 'rate_limit').hooks[0].type, 'command');
-  assert.deepEqual(JSON.parse(fs.readFileSync(`${settings}.baton-backup`, 'utf8')), before);
+  assert.deepEqual(JSON.parse(fs.readFileSync(`${settings}.relay-backup`, 'utf8')), before);
 
   assert.equal(hook.uninstall().installed, false);
   assert.deepEqual(JSON.parse(fs.readFileSync(settings, 'utf8')), before);

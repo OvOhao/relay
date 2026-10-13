@@ -1,6 +1,6 @@
-/* Baton: a calm Windows 11 utility. Warm neutrals, ink text, one clay accent; flat layered surfaces with
+/* Relay: a calm Windows 11 utility. Warm neutrals, ink text, one clay accent; flat layered surfaces with
    hairline borders, 8px radii, and a shadow only on menus, sheets and toasts. Light and dark follow the OS.
-   When the window has Mica (html[data-material="mica"]), the page is see-through and surfaces are tinted. */
+   When the window has Mica or macOS vibrancy (html[data-material]), the page is see-through and surfaces are tinted. */
 :root {
   color-scheme: light dark;
   --bg: #f5f4f0; --surface: #fdfdfc; --surface-2: rgba(20, 20, 19, 0.045); --solid: #fdfdfc;
@@ -26,11 +26,14 @@
     --backdrop: rgba(0, 0, 0, 0.45);
   }
 }
-/* Mica shows through the page; cards are slightly tinted layers on top of it (Fluent card values). */
-html[data-material="mica"] { --bg: transparent; --surface: rgba(255, 255, 255, 0.62); }
+/* Mica (Windows) or vibrancy (macOS) shows through the page; cards are slightly tinted layers on top of it. */
+html[data-material] { --bg: transparent; --surface: rgba(255, 255, 255, 0.62); }
 @media (prefers-color-scheme: dark) {
-  html[data-material="mica"] { --surface: rgba(255, 255, 255, 0.045); }
+  html[data-material] { --surface: rgba(255, 255, 255, 0.045); }
 }
+/* macOS: the system font, and a panel that reads as one: the popover material already gives it rounded corners. */
+html[data-os="mac"] { --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif; }
+html[data-os="mac"] .titlebar { padding-left: 14px; }
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -257,6 +260,7 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 .u-note { display: flex; align-items: center; gap: 6px; margin: 6px 0 0 46px; font-size: 12px; color: var(--ink-3); }
 .acct-foot { display: flex; align-items: center; gap: 8px; margin: 8px 0 0 46px; min-width: 0; }
 .age { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.age.warn { gap: 0; color: var(--clay-ink); white-space: normal; flex-wrap: wrap; justify-content: flex-end; text-align: right; min-width: 0; }
 
 .add-row {
   display: flex; align-items: center; justify-content: center; gap: 6px; height: 34px; width: 100%;
@@ -401,7 +405,7 @@ dialog.sheet::backdrop { background: var(--backdrop); animation: fade 160ms var(
 }
 .toast.out { opacity: 0; transform: translateY(4px); }
 
-/* after "Remove Baton" */
+/* after "Remove Relay" */
 .gone { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 32px; text-align: center; color: var(--ink-2); }
 .gone .mark { width: 40px; height: 40px; }
 

@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Something in Baton does not work the way it should
+about: Something in Relay does not work the way it should
 labels: bug
 ---
 
@@ -20,7 +20,7 @@ What should have happened instead.
 
 **Environment**
 
-- Baton version (from the About or `package.json`):
+- Relay version (from the About or `package.json`):
 - Windows version:
 - Claude Code version (`claude --version`):
 - Installer or portable exe, or built from source:

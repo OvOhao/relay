@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Relay: an R whose leg is handed on as a forward arrow (the gap is the hand-off) -->
+  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1f1e1d"/><stop offset="1" stop-color="#2b2926"/></linearGradient></defs>
+  <rect width="100" height="100" rx="22" fill="url(#g)"/>
+  <path d="M33 74V27H53a12.5 12.5 0 0 1 0 25H33" fill="none" stroke="#d97757" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M55 59L70 74M58 74H70V62" fill="none" stroke="#f6f1e7" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,6 +1,6 @@
 'use strict';
-// One "Claude window" for the concurrency tests: a separate OS process that shares Baton's home folder with its
-// siblings, exactly like the Baton tool process each Claude window starts. Prints one JSON line when done.
+// One "Claude window" for the concurrency tests: a separate OS process that shares Relay's home folder with its
+// siblings, exactly like the Relay tool process each Claude window starts. Prints one JSON line when done.
 const cfg = JSON.parse(process.argv[2]);
 Object.assign(process.env, cfg.env);
 
