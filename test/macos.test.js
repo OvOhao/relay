@@ -48,7 +48,7 @@ test('the desktop app\'s Claude Code is found inside its macOS app bundle, newes
   }
 });
 
-test('open at login is a LaunchAgent that starts Relay hidden, packaged or from source', () => {
+test('open at login is a LaunchAgent that starts Relay hidden, packaged or from source', { skip: !posix }, () => {
   const root = sandbox();
   process.env.RELAY_LAUNCH_AGENTS_DIR = path.join(root, 'LaunchAgents');
   try {
@@ -86,7 +86,7 @@ test('Remove Relay also removes the open-at-login agent', async () => {
   }
 });
 
-test('PATH for an app opened from Finder: the login shell first, then what was there, then the install folders, no repeats', () => {
+test('PATH for an app opened from Finder: the login shell first, then what was there, then the install folders, no repeats', { skip: !posix }, () => {
   const { mergePath, standardDirs } = require(`${SRC}/core/platform`);
   const merged = mergePath('/a:/b', '/usr/bin:/b:/c', standardDirs()).split(':');
   assert.deepEqual(merged.slice(0, 4), ['/a', '/b', '/usr/bin', '/c']);
@@ -239,7 +239,7 @@ test('Claude Code wired up as Baton is rewired as Relay: old tool, skill and hoo
   void root;
 });
 
-test('the open-at-login agent from Baton is replaced by Relay\'s', () => {
+test('the open-at-login agent from Baton is replaced by Relay\'s', { skip: !posix }, () => {
   const root = sandbox();
   process.env.RELAY_LAUNCH_AGENTS_DIR = path.join(root, 'LaunchAgents');
   try {
