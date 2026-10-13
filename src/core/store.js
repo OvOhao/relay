@@ -9,12 +9,13 @@ const path = require('path');
 const fslock = require('./fslock');
 
 const home = () => process.env.RELAY_HOME || path.join(os.homedir(), '.relay');
-// Relay used to be called Baton and kept its data in ~/.baton. The sign-in folders made back then stay there: on macOS
-// each login is a Keychain entry tied to its folder's path, so moving a folder would sign that account out.
-// (Tests set RELAY_HOME; they only see a legacy folder when they name one.)
-const legacyHome = () => process.env.RELAY_LEGACY_HOME || (process.env.RELAY_HOME ? '' : path.join(os.homedir(), '.baton'));
-// Every folder Relay keeps sign-in folders in: its own, and the one from when it was Baton.
-const accountRoots = () => [path.join(home(), 'accounts'), ...(legacyHome() ? [path.join(legacyHome(), 'accounts')] : [])];
+// Every folder Relay keeps sign-in folders in: its own, plus any listed in settings.json as `extraAccountRoots`
+// (sign-in folders made elsewhere stay where they are: on macOS each login is a Keychain entry tied to its folder's
+// path, so moving a folder would sign that account out).
+const accountRoots = () => {
+  const extra = loadSettings().extraAccountRoots;
+  return [path.join(home(), 'accounts'), ...(Array.isArray(extra) ? extra.filter((d) => typeof d === 'string' && path.isAbsolute(d)) : [])];
+};
 const ownsConfigDir = (dir) => accountRoots().some((r) => path.resolve(dir).startsWith(path.resolve(r) + path.sep));
 const accountsFile = () => path.join(home(), 'accounts.json');
 const settingsFile = () => path.join(home(), 'settings.json');
@@ -169,7 +170,7 @@ const saveSettings = (patch) => mutate(settingsFile(), {}, (cur) => {
 });
 
 module.exports = {
-  home, legacyHome, accountRoots, ownsConfigDir, load, save, get, upsert, remove, update, newAccount, isReady, cleanModel,
+  home, accountRoots, ownsConfigDir, load, save, get, upsert, remove, update, newAccount, isReady, cleanModel,
   markLimited, markNeedsLogin, markUsed, setDesktop, observeLeader, getLeaderSeen, rememberAccountUuid, emailForUuid, nextAvailable, earliestUnblock,
   loadSettings, saveSettings, nowSec,
 };

@@ -72,7 +72,7 @@ The build is ad-hoc signed, not notarized. One you built yourself opens directly
 <details>
 <summary><b>Windows</b></summary>
 
-`npm start` runs it as a tray app; `npm run dist` builds an installer and a portable exe. The Windows code from Baton is kept, but the renamed build has not been re-tested on Windows.
+`npm start` runs it as a tray app; `npm run dist` builds an installer and a portable exe. The Windows build is tested in CI but has not been tried on a real Windows machine yet.
 
 </details>
 
@@ -149,32 +149,25 @@ Another tool is deleting its login. On macOS Claude Code keeps one Keychain item
 </details>
 
 <details>
-<summary><b>Coming from Baton?</b></summary>
-
-On first start Relay moves `~/.baton` to `~/.relay`, except the sign-in folders under `~/.baton/accounts`, which stay where their logins are; nobody signs in again. A Claude Code connected as Baton is rewired as Relay and the old login agent is replaced. Quit Baton, then open a new Claude Code session.
-
-</details>
-
-<details>
 <summary><b>Not verified yet</b></summary>
 
-A real plan-limit takeover (tested with simulated limit events and a fake `claude`), Apple notarization, and the renamed build on Windows.
+A real plan-limit takeover (tested with simulated limit events and a fake `claude`), Apple notarization, and a real Windows machine.
 
 </details>
 
 ## Development
 
 ```bash
-npm test                            # 76 tests against a fake claude: no usage spent
+npm test                            # 73 tests against a fake claude: no usage spent
 node src/dev.js --demo              # the panel in a browser
 npx electron scripts/make-icon.js   # icons from build/logo.svg and build/mark.svg
 npx electron scripts/screenshots.js # the screenshots above, from the demo
 ```
 
-`src/core` holds accounts, limit detection and takeover, usage, project memory, workers, hooks and connect, macOS support and the Baton migration; `src/mcp.js` is the MCP server, `src/server.js` the local API, `ui/` the panel and `src/main.js` the Electron shell.
+`src/core` holds accounts, limit detection and takeover, usage, project memory, workers, hooks and connect, and macOS support; `src/mcp.js` is the MCP server, `src/server.js` the local API, `ui/` the panel and `src/main.js` the Electron shell.
 
 ## Credits
 
-Relay is a fork of **[Baton](https://github.com/zhenggao-30/baton)** by [ZhengGao-30](https://github.com/ZhengGao-30) and its [contributors](CONTRIBUTORS.md), reworked into a macOS menu-bar app. It is an independent project, not made by or affiliated with Anthropic.
+Relay includes code by [ZhengGao-30](https://github.com/ZhengGao-30), used under the MIT license. It is an independent project, not made by or affiliated with Anthropic.
 
 [MIT](LICENSE)

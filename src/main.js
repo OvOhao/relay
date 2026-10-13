@@ -28,15 +28,9 @@ if (demo) {
   app.setPath('userData', path.join(root, 'electron')); // not the real app's cookies and caches either
 }
 
-// Relay used to be called Baton: bring ~/.baton over to ~/.relay before anything reads it (sign-ins stay in place).
-if (!demo) {
-  try { require('./core/migrate').migrateHome(); } catch (e) { console.error('[relay] could not move the Baton data over:', e); }
-}
-
 const { createServer } = require('./server');
 const { createIntroGate } = require('./intro');
 const store = require('./core/store');
-const connect = require('./core/connect');
 
 // The language is a setting (English by default), read whenever a string is needed so a change applies at once.
 const isZh = () => store.loadSettings().language === 'zh';
@@ -278,12 +272,8 @@ if (process.argv.includes('--disconnect')) {
     setTooltip();
     buildMenu();
 
-    // An existing "open at login" choice follows Relay when it moves (a new app version, another folder, the old
-    // Baton agent).
-    const hadBatonAgent = isMac && platform.removeLegacyAutoStart();
-    if (isMac && store.loadSettings().startAtLogin && (platform.autoStartInstalled() || hadBatonAgent)) setAutoStart(true);
-    // Connected to Claude Code as Baton: connect again under the new name (the old tool, skill and hooks go).
-    if (!demo) connect.migrateLegacyWiring().catch((e) => console.error('[relay] could not move the Claude Code wiring over:', e));
+    // An existing "open at login" choice follows Relay when it moves (a new app version, another folder).
+    if (isMac && store.loadSettings().startAtLogin && platform.autoStartInstalled()) setAutoStart(true);
 
     createWindow(process.argv.includes('--hidden') && store.loadSettings().startAtLogin);
   });
