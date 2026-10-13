@@ -33,7 +33,7 @@ A Claude Code window runs on one account, and that account's usage runs out. Rel
 
 ## Features
 
-| | |
+| Feature | What it does |
 |---|---|
 | **Hand off** | Say `/relay <job>` or "use relay for this". A free worker takes it and the report comes back to your window. |
 | **Memory** | A named thread resumes the same worker session, even after it moved to another account. A project ledger tells every worker what the others did. |
