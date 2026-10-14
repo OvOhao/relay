@@ -68,13 +68,14 @@ function toItems(ev, acct) {
   return [];
 }
 
-function runOnce(acct, { prompt, cwd, sessionId, extraArgs, permissionMode, model }, onEvent, setChild) {
+function runOnce(acct, { prompt, cwd, sessionId, extraArgs, allowedTools = [], permissionMode, model }, onEvent, setChild) {
   return new Promise((resolve, reject) => {
     setup.syncSharedFiles(acct.configDir);
     const args = ['-p', '--output-format', 'stream-json', '--verbose'];
     if (permissionMode) args.push('--permission-mode', permissionMode);
     if (model) args.push('--model', model);
     if (sessionId) args.push('--resume', sessionId);
+    if (allowedTools.length) args.push('--allowedTools', ...allowedTools); // the rules from Settings, one value each
     args.push(...extraArgs);
 
     let child;
@@ -198,7 +199,8 @@ class Engine extends EventEmitter {
     });
   }
 
-  async send({ prompt, cwd, permissionMode, extraArgs = '', hidden = false }) {
+  // The commands workers may run and any extra arguments come from Settings unless the caller passes its own.
+  async send({ prompt, cwd, permissionMode, extraArgs, allowedTools, hidden = false }) {
     if (this.running) throw new Error('A task is already running');
     if (cwd && !fs.existsSync(cwd)) throw new Error(`Folder not found: ${cwd}`);
     if (permissionMode && !PERMISSION_MODES.includes(permissionMode)) throw new Error(`Unknown permission mode: ${permissionMode}`);
@@ -209,7 +211,12 @@ class Engine extends EventEmitter {
     if (!hidden) this._push({ kind: 'user', text: prompt });
     this._state('running');
     try {
-      await this._loop({ prompt, cwd, permissionMode, extraArgs: splitArgs(extraArgs) });
+      const settings = store.loadSettings();
+      await this._loop({
+        prompt, cwd, permissionMode,
+        extraArgs: splitArgs(extraArgs ?? settings.extraArgs ?? ''),
+        allowedTools: allowedTools ?? store.cleanAllowedTools(settings.allowedTools).rules,
+      });
       activeHere.delete(this);
       this.running = false;
       if (this.stopped) this._push({ kind: 'notice', level: 'info', code: 'stopped', text: 'Stopped.' });
@@ -230,7 +237,7 @@ class Engine extends EventEmitter {
     }
   }
 
-  async _loop({ prompt, cwd, permissionMode, extraArgs }) {
+  async _loop({ prompt, cwd, permissionMode, extraArgs, allowedTools }) {
     let next = prompt;
     let preferred = this.account;
     for (let attempt = 0; attempt < 200 && !this.stopped; attempt++) {
@@ -262,7 +269,7 @@ class Engine extends EventEmitter {
       // else's session and should not silently switch its model.
       const out = await runOnce(
         acct,
-        { prompt: next, cwd, sessionId: this.sessionId, extraArgs, permissionMode, model: this.model || (this.useAccountModel ? acct.model : '') || '' },
+        { prompt: next, cwd, sessionId: this.sessionId, extraArgs, allowedTools, permissionMode, model: this.model || (this.useAccountModel ? acct.model : '') || '' },
         (ev) => {
           // known from the first event on, so a run stopped halfway (cancel, window closed) can still be resumed
           if (ev.type === 'system' && ev.subtype === 'init' && ev.session_id) this.sessionId = ev.session_id;

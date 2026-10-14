@@ -343,6 +343,13 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 }
 .radio-row[aria-checked="true"] .radio { border-color: var(--clay); box-shadow: inset 0 0 0 3px var(--solid), inset 0 0 0 8px var(--clay); }
 .rr-text { display: flex; flex-direction: column; min-width: 0; }
+.rules { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.rules-d, .rules-none { margin: 0; font-size: 12px; color: var(--ink-2); }
+.rules-none { color: var(--ink-3); }
+.rule-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 0; border-top: 1px solid var(--line); }
+.rule { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.rules-add { padding-top: 4px; }
+.rules-add .btn { display: inline-flex; align-items: center; gap: 6px; }
 .rr-text b { font-weight: 500; }
 .rr-text small { font-size: 12px; color: var(--ink-2); }
 

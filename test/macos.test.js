@@ -207,3 +207,28 @@ test('a login Claude Code cannot read: "sign in needed" after two tries in a row
     delete process.env.FAKE_LOGGED_OUT;
   }
 });
+
+// ---- commands workers may run ----
+test('permission rules are cleaned: tool names with an optional pattern, nothing that could pass for a flag', () => {
+  sandbox();
+  const store = require(`${SRC}/core/store`);
+  const { rules, bad } = store.cleanAllowedTools(['Bash(python3 *)', ' Bash(ssh CSE_T4 *) ', 'WebFetch', 'mcp__github__get_issue', 'Bash(python3 *)', '',
+    '--dangerously-skip-permissions', 'Bash(rm -rf /)\n--x', 'Bash(', 7]);
+  assert.deepEqual(rules, ['Bash(python3 *)', 'Bash(ssh CSE_T4 *)', 'WebFetch', 'mcp__github__get_issue']);
+  assert.deepEqual(bad, ['--dangerously-skip-permissions', 'Bash(rm -rf /)\n--x', 'Bash(', '7']);
+});
+
+test('every worker run gets the rules from Settings as --allowedTools, and Extra args as they are', async () => {
+  const root = sandbox();
+  const store = require(`${SRC}/core/store`);
+  const { Engine } = require(`${SRC}/core/engine`);
+  store.save([store.newAccount('w', path.join(root, 'home', 'accounts', 'w'), 'w@x.com')]);
+  fs.mkdirSync(path.join(root, 'project'), { recursive: true });
+  store.saveSettings({ allowedTools: ['Bash(python3 *)', 'Bash(bin/claudeidea *)'], extraArgs: '--extra "a b" c' });
+  const engine = new Engine();
+  await engine.send({ prompt: 'hi', cwd: path.join(root, 'project'), permissionMode: 'acceptEdits', hidden: true });
+  assert.equal(engine.status, 'idle', engine.lastError && engine.lastError.message);
+  const runs = fs.readFileSync(path.join(root, 'state', 'invocations.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(runs.at(-1).allowedTools, ['Bash(python3 *)', 'Bash(bin/claudeidea *)']);
+  assert.deepEqual(runs.at(-1).extra, ['a b', 'c']);
+});

@@ -231,8 +231,13 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
 
     'POST /api/settings': (body) => {
       const before = store.loadSettings().language;
-      const patch = pick(body, ['permissionMode', 'extraArgs', 'startAtLogin', 'language', 'panelPinned']);
+      const patch = pick(body, ['permissionMode', 'extraArgs', 'allowedTools', 'startAtLogin', 'language', 'panelPinned']);
       if ('panelPinned' in patch) patch.panelPinned = !!patch.panelPinned;
+      if ('allowedTools' in patch) {
+        const { rules, bad } = store.cleanAllowedTools(patch.allowedTools);
+        if (bad.length) throw new Error(`Not a permission rule: ${bad.join(', ')}. Use a tool name, optionally with a pattern in parentheses, e.g. Bash(npm test).`);
+        patch.allowedTools = rules;
+      }
       const next = store.saveSettings(patch);
       if ('startAtLogin' in body) shell.setAutoStart?.(!!next.startAtLogin);
       if (next.language !== before) shell.onLanguage?.(next.language);

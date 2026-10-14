@@ -160,7 +160,24 @@ function earliestUnblock(now = nowSec(), filter = null) {
 }
 
 // startAtLogin defaults to on: the hooks and the tool can only reach a Relay that is running.
-const DEFAULT_SETTINGS = { permissionMode: 'acceptEdits', extraArgs: '', claudePath: '', startAtLogin: true, language: 'en' };
+const DEFAULT_SETTINGS = { permissionMode: 'acceptEdits', extraArgs: '', allowedTools: [], claudePath: '', startAtLogin: true, language: 'en' };
+
+// Commands (and other tools) workers may use without asking: Claude Code permission rules, passed to every worker and
+// takeover run as --allowedTools. A rule is a tool name, optionally with a pattern in parentheses: "Bash(npm test)",
+// "Bash(python3 *)", "WebFetch", "mcp__github__get_issue". One line, starting with a letter, so it can never be read
+// as another command-line flag. Returns { rules, bad }: the cleaned, de-duplicated rules and whatever was refused.
+const RULE_RE = /^[A-Za-z][A-Za-z0-9_]*(\([^\n\r]{1,300}\))?$/;
+function cleanAllowedTools(list) {
+  const rules = [];
+  const bad = [];
+  for (const raw of Array.isArray(list) ? list : []) {
+    const r = String(raw == null ? '' : raw).trim();
+    if (!r) continue;
+    if (!RULE_RE.test(r)) bad.push(r);
+    else if (!rules.includes(r)) rules.push(r);
+  }
+  return { rules: rules.slice(0, 100), bad };
+}
 const cleanLanguage = (l) => (l === 'zh' ? 'zh' : 'en');
 const loadSettings = () => ({ ...DEFAULT_SETTINGS, ...readJson(settingsFile(), {}) });
 const saveSettings = (patch) => mutate(settingsFile(), {}, (cur) => {
@@ -172,5 +189,5 @@ const saveSettings = (patch) => mutate(settingsFile(), {}, (cur) => {
 module.exports = {
   home, accountRoots, ownsConfigDir, load, save, get, upsert, remove, update, newAccount, isReady, cleanModel,
   markLimited, markNeedsLogin, markUsed, setDesktop, observeLeader, getLeaderSeen, rememberAccountUuid, emailForUuid, nextAvailable, earliestUnblock,
-  loadSettings, saveSettings, nowSec,
+  loadSettings, saveSettings, cleanAllowedTools, nowSec,
 };

@@ -9,6 +9,9 @@ const fs = require('fs');
 const path = require('path');
 
 const args = process.argv.slice(2);
+// What a run was given after --allowedTools (its values run until the next flag), and the arguments after a "--extra" marker.
+const allowedArgs = () => { const i = args.indexOf('--allowedTools'); if (i < 0) return null; const out = []; for (let k = i + 1; k < args.length && !args[k].startsWith('--'); k++) out.push(args[k]); return out; };
+const extraArgsSeen = () => { const i = args.indexOf('--extra'); return i < 0 ? null : args.slice(i + 1); };
 // FAKE_SIGNED_OUT: login folders (by name) that have no login, as if it was never made or was removed (the demo)
 if ((process.env.FAKE_SIGNED_OUT || '').split(',').includes(path.basename(process.env.CLAUDE_CONFIG_DIR || ''))) process.env.FAKE_LOGGED_OUT = '1';
 if (args[0] === 'auth') {
@@ -89,7 +92,7 @@ process.stdin.on('end', async () => {
   const resume = ri >= 0 ? args[ri + 1] : null;
   const sid = resume || `sess-${Math.random().toString(36).slice(2, 8)}`;
   const mi = args.indexOf('--model');
-  fs.appendFileSync(path.join(state, 'invocations.jsonl'), `${JSON.stringify({ account, behaviour, resume, prompt, model: mi >= 0 ? args[mi + 1] : null })}\n`);
+  fs.appendFileSync(path.join(state, 'invocations.jsonl'), `${JSON.stringify({ account, behaviour, resume, prompt, model: mi >= 0 ? args[mi + 1] : null, allowedTools: allowedArgs(), extra: extraArgsSeen() })}\n`);
 
   const out = (o) => console.log(JSON.stringify({ session_id: sid, ...o }));
   out({ type: 'system', subtype: 'init', model: 'fake-model' });
