@@ -7,9 +7,10 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const store = require('./store');
+const fslock = require('./fslock');
 
 const SHARED_DIRS = ['projects', 'skills', 'plugins', 'agents', 'commands'];
-const SHARED_FILES = ['settings.json', 'CLAUDE.md'];
+const SHARED_FILES = ['CLAUDE.md'];
 
 const hubDir = () => process.env.RELAY_HUB || path.join(os.homedir(), '.claude');
 const accountDir = (name) => path.join(store.home(), 'accounts', name);
@@ -35,8 +36,42 @@ function prepareConfigDir(dir) {
   syncSharedFiles(dir);
 }
 
-// Copy hub settings over when newer; cheap enough to call before every run.
+// What a worker account's settings.json should say: your own ~/.claude/settings.json, plus the commands workers may
+// run (Settings › Commands workers may run) added to permissions.allow. They are written into each worker's own
+// settings, not passed on the command line only, because Claude Code applies an account's own allow rules whatever
+// folder it runs in and whoever starts it (a project's rules were not applied to worker sessions), and a Relay tool
+// started by an older Claude window still gets them. Your own ~/.claude/settings.json is never changed.
+function workerSettings() {
+  let base = {};
+  try {
+    base = JSON.parse(fs.readFileSync(path.join(hubDir(), 'settings.json'), 'utf8')) || {};
+  } catch (e) {
+    base = e.code === 'ENOENT' ? {} : null; // no settings of yours: just the rules; unreadable ones: left as they are
+  }
+  const rules = store.cleanAllowedTools(store.loadSettings().allowedTools).rules;
+  if (base === null) return null; // unreadable: copy it as it is
+  if (!rules.length) return base;
+  const allow = Array.isArray(base.permissions?.allow) ? base.permissions.allow : [];
+  return { ...base, permissions: { ...(base.permissions || {}), allow: [...allow, ...rules.filter((r) => !allow.includes(r))] } };
+}
+
+// Bring a worker account's shared files up to date; cheap enough to call before every run. settings.json is compared
+// by content (so a change of the allowed commands applies at once); CLAUDE.md is copied when the hub's is newer.
 function syncSharedFiles(dir) {
+  if (path.resolve(dir) === path.resolve(hubDir())) return; // the main login: its settings are yours, never rewritten
+  const dst = path.join(dir, 'settings.json');
+  try {
+    const want = workerSettings();
+    if (want === null) {
+      const src = path.join(hubDir(), 'settings.json');
+      if (exists(src) && (!exists(dst) || fs.statSync(src).mtimeMs > fs.statSync(dst).mtimeMs)) fs.copyFileSync(src, dst);
+    } else {
+      const text = `${JSON.stringify(want, null, 2)}\n`;
+      let cur = null;
+      try { cur = fs.readFileSync(dst, 'utf8'); } catch { /* not written yet */ }
+      if (cur !== text && (Object.keys(want).length || cur !== null)) fslock.writeFileAtomic(dst, text);
+    }
+  } catch { /* the next run tries again */ }
   for (const f of SHARED_FILES) {
     const src = path.join(hubDir(), f);
     const dst = path.join(dir, f);
@@ -88,4 +123,10 @@ function syncSessionBack(acct, { sessionId, transcriptPath }) {
   if (!exists(transcriptPath) || fs.statSync(src).mtimeMs > fs.statSync(transcriptPath).mtimeMs) fs.copyFileSync(src, transcriptPath);
 }
 
-module.exports = { prepareConfigDir, syncSharedFiles, removeConfigDir, accountDir, hubDir, ensureSession, syncSessionBack };
+// Every worker account at once: after the allowed commands change, and now and then (a Relay tool started by an
+// older Claude window copies your settings.json over the worker's when yours changes).
+function syncAllAccounts() {
+  for (const a of store.load()) { try { if (fs.existsSync(a.configDir)) syncSharedFiles(a.configDir); } catch { /* next round */ } }
+}
+
+module.exports = { prepareConfigDir, syncSharedFiles, syncAllAccounts, workerSettings, removeConfigDir, accountDir, hubDir, ensureSession, syncSessionBack };

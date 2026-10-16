@@ -240,6 +240,7 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
       }
       const next = store.saveSettings(patch);
       if ('startAtLogin' in body) shell.setAutoStart?.(!!next.startAtLogin);
+      if ('allowedTools' in patch) setup.syncAllAccounts(); // every worker account gets the new rules right away
       if (next.language !== before) shell.onLanguage?.(next.language);
       return next;
     },
@@ -475,6 +476,9 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
       setInterval(() => refreshUsage({ maxAgeMs: watching() ? 25 * 1000 : 4 * 60 * 1000 }), 30 * 1000).unref();
       setInterval(settle, 30 * 60 * 1000).unref();
       setInterval(syncLeaderFromDesktop, 10 * 1000).unref();
+      // Keep each worker account's settings (your settings + the commands workers may run) current.
+      setTimeout(() => { if (!removed) setup.syncAllAccounts(); }, 300).unref();
+      setInterval(() => { if (!removed) setup.syncAllAccounts(); }, 20 * 1000).unref();
       setTimeout(syncLeaderFromDesktop, 500).unref();
       setTimeout(probeCli, 800).unref();
 
