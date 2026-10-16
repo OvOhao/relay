@@ -232,3 +232,29 @@ test('every worker run gets the rules from Settings as --allowedTools, and Extra
   assert.deepEqual(runs.at(-1).allowedTools, ['Bash(python3 *)', 'Bash(bin/claudeidea *)']);
   assert.deepEqual(runs.at(-1).extra, ['a b', 'c']);
 });
+
+test('worker accounts get your settings plus the allowed commands in their own settings.json; yours is never touched', () => {
+  const root = sandbox();
+  const store = require(`${SRC}/core/store`);
+  const setup = require(`${SRC}/core/setup`);
+  const hub = process.env.RELAY_HUB;
+  const mine = { theme: 'dark', permissions: { allow: ['Bash(git status)'], deny: ['Bash(rm *)'] }, hooks: { SessionStart: [] } };
+  fs.writeFileSync(path.join(hub, 'settings.json'), JSON.stringify(mine));
+  const w = path.join(root, 'home', 'accounts', 'w');
+  setup.prepareConfigDir(w);
+  store.save([store.newAccount('w', w, 'w@x.com'), store.newAccount('main', hub, 'me@x.com')]);
+  store.saveSettings({ allowedTools: ['Bash(python3 *)', 'Bash(git status)'] });
+  setup.syncAllAccounts();
+  const got = JSON.parse(fs.readFileSync(path.join(w, 'settings.json'), 'utf8'));
+  assert.deepEqual(got.permissions.allow, ['Bash(git status)', 'Bash(python3 *)'], 'yours first, then the new ones, no repeats');
+  assert.deepEqual(got.permissions.deny, ['Bash(rm *)']);
+  assert.equal(got.theme, 'dark');
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(hub, 'settings.json'), 'utf8')), mine, 'the main login\'s settings stay as they were');
+  // an older Relay tool copies your file over the worker's when yours changes: the next round puts the rules back
+  fs.copyFileSync(path.join(hub, 'settings.json'), path.join(w, 'settings.json'));
+  setup.syncSharedFiles(w);
+  assert.ok(JSON.parse(fs.readFileSync(path.join(w, 'settings.json'), 'utf8')).permissions.allow.includes('Bash(python3 *)'));
+  store.saveSettings({ allowedTools: [] });
+  setup.syncSharedFiles(w);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(w, 'settings.json'), 'utf8')).permissions.allow, ['Bash(git status)'], 'a removed rule goes again');
+});
