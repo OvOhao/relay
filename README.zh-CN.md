@@ -40,8 +40,9 @@
 | **额度一目了然** | 每个账号的 5 小时 / 本周用量和恢复时间，读自 Claude Code 自己的 `/usage`。 |
 | **每个账号一个模型** | 机械活用 Haiku，大模型留给真正需要的任务。 |
 | **安全网** | 领队任务做到一半撞上限额时，Relay 在后台换一个就绪的账号接着跑同一个会话。 |
-| **并行不打架** | 不同账号可以同时干活；同一个项目文件夹同时只有一个任务在写，其他的排队。 |
+| **所有 worker 一起干活** | 同一个文件夹、同一个对话里的多个任务可以同时运行，每个任务分给一个空闲的 worker；所有 worker 都在忙时，新任务等第一个空出来的。声明了重叠改动范围（`scope`）的任务会轮流执行，不会同时改同一批文件。 |
 | **macOS 原生体验** | 菜单栏应用：模板图标、从图标下方弹出的毛玻璃面板、图标旁显示运行中的任务数、开机启动。 |
+| **更新对已开的对话立即生效** | 每次调用工具都会运行 Relay 的最新代码，所以 Relay 更新后，已经打开的对话也会直接用上。 |
 | **本地、私密** | 只监听 `127.0.0.1`。Relay 从不读取、复制或发送你的登录凭证。 |
 
 ## 安装
@@ -106,7 +107,7 @@ Claude 会替你调用这些工具：
 
 | 工具 | 作用 |
 |---|---|
-| `relay_run` | 把任务交给 worker：`task`、`context`、`cwd`，可选的 `thread`（接着做）、`read_only`、`account`、`model`、`title`。返回 worker 的报告。 |
+| `relay_run` | 把任务交给 worker：`task`、`context`、`cwd`，可选的 `thread`（接着做）、`read_only`、`account`、`model`、`title`、`scope`（它会改哪些文件夹）。返回 worker 的报告。在同一轮里调用多次就能并行派活。 |
 | `relay_status` | 谁是领队、哪些 worker 就绪、各自还剩多少额度，以及某个项目里的线索。 |
 | `relay_ledger` | 某个项目里 worker 做过的所有事，适合隔了很久或上下文被压缩后重新接上。 |
 
@@ -119,6 +120,7 @@ worker 在后台运行，没有人能点「批准」。所以它能做什么，�
 - **权限模式**：*auto* 和你自己的窗口一样，常规命令直接执行，有风险的操作会被拒绝。也可以选「修改文件」「完全放手」「只读」。
 - **Worker 可以直接运行的命令**：Claude Code 的权限规则，比如 `Bash(npm test)`。
 - **Worker 永远不能运行的命令**：不管命令怎么写都会被拒绝，包括完整路径、`./`、放在 `cd … && …` 里。适合放只该由你或你的窗口来做的事，比如 `Bash(git push *)`。
+- **任务**：「同一文件夹一次只跑一个任务」（默认关）和「每个 worker 同时接几个任务」（默认 1）。
 
 Relay 会把这些规则写进每个 worker 账号自己的 `settings.json`（你的设置加上这些规则），并保持更新。你自己的 `~/.claude/settings.json` 不会被改动。
 
@@ -168,7 +170,7 @@ flowchart LR
 ## 开发
 
 ```bash
-npm test                            # 79 个测试，用假的 claude，不消耗额度
+npm test                            # 84 个测试，用假的 claude，不消耗额度
 node src/dev.js --demo              # 在浏览器里看面板
 npx electron scripts/make-icon.js   # 从 build/logo.svg 和 build/mark.svg 生成图标
 npx electron scripts/screenshots.js # 用 demo 数据生成上面的截图

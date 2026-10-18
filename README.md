@@ -40,8 +40,9 @@ A Claude Code window runs on one account, and that account's usage runs out. Rel
 | **Usage at a glance** | Every account's 5-hour and weekly usage and when it resets, read from Claude Code's own `/usage`. |
 | **A model per account** | Run mechanical jobs on Haiku and save the big models for the work that needs them. |
 | **Safety net** | When the leader hits its limit mid-task, Relay resumes the same session on the next ready account in the background. |
-| **Parallel, never clashing** | Different accounts work at once; one project folder is only ever written by one job, the rest queue. |
+| **Every worker at once** | Several jobs run in the same folder and conversation at the same time, one per free worker; with every worker busy, a job waits for the first one to come free. Jobs that name overlapping folders (`scope`) take turns, so they never edit the same files together. |
 | **Native on macOS** | A menu-bar app: template icon, frosted panel under the icon, running-job count next to it, open at login. |
+| **Updates reach open windows** | Every tool call runs Relay's current code, so an update applies to conversations that are already open. |
 | **Local and private** | Everything listens on `127.0.0.1`. Relay never reads, copies or sends your credentials. |
 
 ## Install
@@ -106,7 +107,7 @@ Claude calls the tools for you:
 
 | Tool | What it does |
 |---|---|
-| `relay_run` | Hands a job to a worker: `task`, `context`, `cwd`, an optional `thread` to continue, `read_only`, `account`, `model`, `title`. Returns the worker's report. |
+| `relay_run` | Hands a job to a worker: `task`, `context`, `cwd`, an optional `thread` to continue, `read_only`, `account`, `model`, `title`, `scope` (the folders it changes). Returns the worker's report. Call it several times in one turn to run jobs in parallel. |
 | `relay_status` | Who is the leader, which workers are ready, how much usage each has left; the threads in a project. |
 | `relay_ledger` | Everything workers did in a project, to get back on track after a long break or a compacted context. |
 
@@ -119,6 +120,7 @@ Workers run in the background, so nobody is there to approve a command. **Settin
 - **Permission mode.** *Auto* works like your own window: routine commands run, risky ones are refused. *Edit files*, *Do everything* and *Read only* are there too.
 - **Commands workers may run.** Claude Code permission rules such as `Bash(npm test)`.
 - **Commands workers may never run.** Refused however the command is written: a full path, `./`, or inside `cd … && …`. Use it for what only you or your own window should do, such as `Bash(git push *)`.
+- **Jobs.** *One job at a time per folder* (off by default) and *Jobs per worker at once* (1 by default).
 
 Relay writes these rules into each worker account's own `settings.json` (your settings plus the rules) and keeps them current. Your own `~/.claude/settings.json` is never changed.
 
@@ -168,7 +170,7 @@ A real plan-limit takeover (tested with simulated limit events and a fake `claud
 ## Development
 
 ```bash
-npm test                            # 79 tests against a fake claude: no usage spent
+npm test                            # 84 tests against a fake claude: no usage spent
 node src/dev.js --demo              # the panel in a browser
 npx electron scripts/make-icon.js   # icons from build/logo.svg and build/mark.svg
 npx electron scripts/screenshots.js # the screenshots above, from the demo
