@@ -27,6 +27,7 @@ function sandbox(plan, accounts) {
   const store = require(`${ROOT_SRC}/core/store`);
   accounts = accounts || [['lead', 'lead@x.com', { desktop: true }], ['w1', 'w1@x.com', {}], ['w2', 'w2@x.com', {}]];
   store.save(accounts.map(([n, email, extra]) => ({ ...store.newAccount(n, path.join(root, 'home', 'accounts', n), email), ...extra })));
+  store.saveSettings({ folderLock: true, jobsPerWorker: 0 }); // these tests are about one job per folder: turn it on
   const invocations = () => {
     const f = path.join(process.env.FAKE_STATE, 'invocations.jsonl');
     return fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : [];

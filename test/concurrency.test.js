@@ -25,6 +25,7 @@ function sandbox({ plan = {}, delay = 150, accounts = [['lead', { desktop: true 
   delete process.env.RELAY_TAKEOVER;
   const store = require('../src/core/store');
   store.save(accounts.map(([n, extra]) => ({ ...store.newAccount(n, path.join(root, 'home', 'accounts', n), `${n}@x.com`), ...extra })));
+  store.saveSettings({ folderLock: true, jobsPerWorker: 0 }); // these tests are about one job per folder: turn it on
   const folder = (name) => { const d = path.join(root, name); fs.mkdirSync(d, { recursive: true }); return d; };
   const invocations = () => {
     const f = path.join(env.FAKE_STATE, 'invocations.jsonl');

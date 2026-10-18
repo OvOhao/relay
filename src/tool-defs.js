@@ -23,7 +23,7 @@ const TOOLS = [
         title: { type: 'string', description: 'A 3-8 word label saying what this job is, shown in Relay\'s panel, e.g. "Build promo website". Max 60 characters.' },
         scope: {
           type: 'array', items: { type: 'string' },
-          description: 'The folders this job will change, relative to cwd, e.g. ["ideas/i025-vla"]. Jobs whose scopes do not overlap run at the same time on different workers; omit it to reserve the whole folder (then other jobs in it wait). Read-only jobs never wait.',
+          description: 'Optional: the folders this job will change, relative to cwd, e.g. ["ideas/i025-vla"]. Several jobs run in one folder at once, each on a free worker; two jobs whose scopes overlap run one after the other so they never edit the same files together. Read-only jobs never wait.',
         },
       },
       required: ['task', 'cwd'],

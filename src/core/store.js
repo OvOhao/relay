@@ -160,7 +160,9 @@ function earliestUnblock(now = nowSec(), filter = null) {
 }
 
 // startAtLogin defaults to on: the hooks and the tool can only reach a Relay that is running.
-const DEFAULT_SETTINGS = { permissionMode: 'acceptEdits', extraArgs: '', allowedTools: [], deniedTools: [], claudePath: '', startAtLogin: true, language: 'en' };
+// folderLock: one job at a time per project folder (off: jobs share a folder, and only jobs whose scopes overlap wait).
+// jobsPerWorker: how many jobs one worker account runs at once (0 = no limit); with every worker busy, a job waits.
+const DEFAULT_SETTINGS = { permissionMode: 'acceptEdits', extraArgs: '', allowedTools: [], deniedTools: [], folderLock: false, jobsPerWorker: 1, claudePath: '', startAtLogin: true, language: 'en' };
 
 // Commands (and other tools) workers may use without asking: Claude Code permission rules, passed to every worker and
 // takeover run as --allowedTools. A rule is a tool name, optionally with a pattern in parentheses: "Bash(npm test)",

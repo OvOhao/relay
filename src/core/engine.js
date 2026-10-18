@@ -26,6 +26,7 @@ const MAX_ITEMS = 3000;
 
 // Engines of this process that are using an account right now (engine -> account name), for the least-busy choice.
 const activeHere = new Map();
+const BUSY = Symbol('every ready worker is busy');
 
 const hhmm = (sec) => new Date(sec * 1000).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
 
@@ -119,6 +120,7 @@ class Engine extends EventEmitter {
   constructor() {
     super();
     this.tick = Number(process.env.RELAY_TICK || 30) * 1000;
+    this.busyPollMs = Number(process.env.RELAY_BUSY_POLL_MS || 2000);
     this.slack = Number(process.env.RELAY_SLACK || 5) * 1000;
     this.newChat(true);
   }
@@ -136,6 +138,8 @@ class Engine extends EventEmitter {
     this.prepare = this.prepare || null;
     this.filter = this.filter || null; // restrict which accounts may be used (e.g. workers only)
     this.maxWait = this.maxWait ?? null; // seconds; refuse to wait for a reset longer than this
+    this.maxPerAccount = this.maxPerAccount ?? null; // jobs one account may run at once (worker runs); null = no limit
+    this.busyWaitSec = this.busyWaitSec ?? 1800; // how long to wait for a free worker before giving up
     this.lastError = null;
     this.abort = new AbortController();
     this.emit('reset');
@@ -143,7 +147,7 @@ class Engine extends EventEmitter {
   }
 
   snapshot() {
-    return { status: this.status, running: this.running, account: this.account, sessionId: this.sessionId, waitingUntil: this.waitingUntil };
+    return { status: this.status, running: this.running, account: this.account, sessionId: this.sessionId, waitingUntil: this.waitingUntil, waitingFor: this.waitingFor || null };
   }
 
   _push(item) {
@@ -179,17 +183,22 @@ class Engine extends EventEmitter {
   // least recently used, then registry order. Several windows start jobs at the same moment, so choosing and
   // reserving (lastUsed + this run's account in its run file, via onReserve) happen under one cross-process lock:
   // the next window to choose already sees this reservation.
+  // With maxPerAccount set (worker runs), an account already running that many jobs is not free: when every ready
+  // account is busy, _pick answers BUSY and the run waits for one to come free.
   _pick(preferred) {
     return withFileLock(path.join(store.home(), 'pick'), () => {
       activeHere.delete(this); // a failover: the account this run leaves must not count against the others
       const now = store.nowSec();
       const accounts = store.load().filter((x) => !this.filter || this.filter(x));
+      const load = activeRuns();
+      const free = (x) => this.maxPerAccount == null || (load.get(x.name) || 0) < this.maxPerAccount;
       let a = preferred && accounts.find((x) => x.name === preferred);
-      if (!(a && store.isReady(a, now))) {
-        const load = activeRuns();
+      if (!(a && store.isReady(a, now) && free(a))) {
         const ready = accounts.map((x, i) => ({ x, i })).filter(({ x }) => store.isReady(x, now));
-        ready.sort((p, q) => (load.get(p.x.name) || 0) - (load.get(q.x.name) || 0) || (p.x.lastUsed || 0) - (q.x.lastUsed || 0) || p.i - q.i);
-        a = ready.length ? ready[0].x : null;
+        const open = ready.filter(({ x }) => free(x));
+        if (ready.length && !open.length) return BUSY;
+        open.sort((p, q) => (load.get(p.x.name) || 0) - (load.get(q.x.name) || 0) || (p.x.lastUsed || 0) - (q.x.lastUsed || 0) || p.i - q.i);
+        a = open.length ? open[0].x : null;
       }
       if (!a) return null;
       store.markUsed(a.name);
@@ -242,8 +251,18 @@ class Engine extends EventEmitter {
   async _loop({ prompt, cwd, permissionMode, extraArgs, allowedTools, deniedTools }) {
     let next = prompt;
     let preferred = this.account;
+    let busySince = 0;
     for (let attempt = 0; attempt < 200 && !this.stopped; attempt++) {
       const acct = this._pick(preferred);
+      if (acct === BUSY) { // every ready worker already has its jobs: wait for one to come free
+        if (!busySince) busySince = Date.now();
+        if (Date.now() - busySince > this.busyWaitSec * 1000) throw Object.assign(new Error('Every worker is busy with other jobs.'), { code: 'workers_busy' });
+        if (this.waitingFor !== 'worker') this._state('waiting', { waitingUntil: null, waitingFor: 'worker' });
+        await sleep(this.busyPollMs + Math.random() * 500, this.abort.signal);
+        attempt--; // waiting for a free worker is not an account switch
+        continue;
+      }
+      if (this.waitingFor === 'worker') { busySince = 0; this._state('running', { waitingFor: null }); }
       if (!acct) {
         const wake = store.earliestUnblock(store.nowSec(), this.filter);
         if (wake == null) throw Object.assign(new Error('No usable account. Add one, or sign in again from the Accounts panel.'), { code: 'no_account' });

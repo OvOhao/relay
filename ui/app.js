@@ -61,6 +61,8 @@ const T = {
     set_never: 'Commands workers may never run',
     never_d: 'Refused for every worker and takeover, however the command is written (a full path, ./, inside cd … && …). Your own window is not affected.',
     never_none: 'None yet.', never_add: 'Add a rule…', never_add_title: 'Never allow a command', never_hint: 'For example: Bash(git push *) · Bash(bin/tool freeze *) · Bash(ssh server *rm *)',
+    set_jobs: 'Jobs', jobs_folder: 'One job at a time per folder', jobs_folder_d: 'Off: several workers work in the same folder at once; only jobs that name overlapping folders (scope) wait for each other.',
+    jobs_per: 'Jobs per worker at once', jobs_per_d: 'With every worker busy, a new job waits for the first one to come free.', jobs_any: 'No limit',
     set_startup: 'Start with Windows', set_startup_d: 'Relay waits quietly in the tray.',
     set_conn: 'Connection', connected: 'Connected to Claude Code', not_connected: 'Not connected', disconnect: 'Disconnect',
     about: 'About', about_text: 'Relay is an independent tool, not affiliated with Anthropic. Includes code by ZhengGao-30 (MIT).', replay_intro: 'Replay intro',
@@ -137,6 +139,8 @@ const T = {
     set_never: 'Worker 永远不能运行的命令',
     never_d: '对每个 worker 和接管任务都会拒绝，不管命令怎么写（完整路径、./、放在 cd … && … 里）。不影响你自己的窗口。',
     never_none: '还没有。', never_add: '添加规则…', never_add_title: '禁止一条命令', never_hint: '例如：Bash(git push *) · Bash(bin/tool freeze *) · Bash(ssh 服务器 *rm *)',
+    set_jobs: '任务', jobs_folder: '同一文件夹一次只跑一个任务', jobs_folder_d: '关闭时，多个 worker 可以同时在同一个文件夹里工作；只有声明的改动范围（scope）重叠的任务才会互相等待。',
+    jobs_per: '每个 worker 同时接几个任务', jobs_per_d: '所有 worker 都在忙时，新任务会等第一个空出来的 worker。', jobs_any: '不限',
     set_startup: '开机时启动', set_startup_d: 'Relay 会安静地待在托盘里。',
     set_conn: '连接', connected: '已连接 Claude Code', not_connected: '未连接', disconnect: '断开',
     about: '关于', about_text: 'Relay 是独立工具，与 Anthropic 无关联。包含 ZhengGao-30 的代码（MIT 许可）。', replay_intro: '重播开场动画',
@@ -733,6 +737,14 @@ function settingsView() {
       group('perm', t('set_perm'), h('div', { class: 'card list', role: 'radiogroup', 'aria-labelledby': 'g-perm' }, PERMS.map((m) =>
         h('button', { class: 'radio-row', type: 'button', role: 'radio', 'aria-checked': String(m === perm), tabindex: m === perm ? '0' : '-1', 'data-act': 'perm', 'data-mode': m },
           h('i', { class: 'radio' }), h('span', { class: 'rr-text' }, h('b', {}, t(`perm_${m}`)), h('small', {}, t(`perm_${m}_d`))))))),
+      group('jobs', t('set_jobs'), h('div', { class: 'card list' },
+        h('div', { class: 'row' }, h('div', { class: 'row-text' }, h('b', {}, t('jobs_folder')), h('small', {}, t('jobs_folder_d'))),
+          switchBtn(S.settings.folderLock === true, 'folder-lock', t('jobs_folder'))),
+        h('div', { class: 'row col' }, h('div', { class: 'row-text' }, h('b', {}, t('jobs_per')), h('small', {}, t('jobs_per_d'))),
+          h('div', { class: 'seg wide', role: 'radiogroup', 'aria-label': t('jobs_per') }, [1, 2, 3, 0].map((n) => {
+            const cur = Number.isInteger(S.settings.jobsPerWorker) ? S.settings.jobsPerWorker : 1;
+            return h('button', { class: 'seg-btn', type: 'button', role: 'radio', 'aria-checked': String(cur === n), tabindex: cur === n ? '0' : '-1', 'data-act': 'jobs-per', 'data-n': String(n) }, n ? String(n) : t('jobs_any'));
+          }))))),
       group('tools', t('set_tools'), ruleList('allowedTools', t('tools_d'), t('tools_none'), t('tools_add'))),
       group('never', t('set_never'), ruleList('deniedTools', t('never_d'), t('never_none'), t('never_add'))),
       S.canAutoStart ? group('startup', t('set_startup'), h('div', { class: 'card row' },
@@ -1035,6 +1047,8 @@ const ACT = {
     S.settings = await api('/api/settings', { [key]: rules });
     render();
   }),
+  'folder-lock': guard(async () => { S.settings = await api('/api/settings', { folderLock: S.settings.folderLock !== true }); render(); }),
+  'jobs-per': guard(async (el) => { S.settings = await api('/api/settings', { jobsPerWorker: Number(el.dataset.n) }); render(); }),
   pin: guard(async () => { S.settings = await api('/api/settings', { panelPinned: !S.settings.panelPinned }); render(); }),
   perm: guard(async (el) => {
     const before = S.settings;
