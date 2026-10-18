@@ -43,7 +43,13 @@ This window's account is the **leader**. Relay has other Claude accounts (**work
    - **thread**: a short kebab-case name for this line of work, e.g. \`auth-refactor\`. **Reuse the same thread name to continue that work**: the worker resumes its own session and remembers everything, even if Relay moved it to another account. Use a new name for unrelated work.
    - **read_only**: true for review or investigation.
    - **title**: 3-8 words saying what the job is; Relay shows it as the subtitle of the running job.
+   - **scope**: the folders the job will change, relative to cwd, e.g. \`["ideas/i025-vla"]\`. Always give it when the job only touches part of the project: jobs with different scopes run **at the same time on different workers**. Without it the job reserves the whole folder and every other job there waits.
 3. When it returns, read the report, check the result cheaply yourself (look at the changed files, run the tests), then tell the user in their language what was done and **which worker account did it**.
+
+## Use every worker
+- Split big work into independent jobs (different ideas, papers, modules) and give each its own **scope**.
+- Start them together: call \`relay_run\` several times **in the same turn**, one per job. Relay puts each on the least busy worker.
+- Investigation and review jobs should be \`read_only\`: they never wait for other jobs and never block them.
 
 ## Memory
 - Workers share the user's CLAUDE.md files and project memory with you.
@@ -51,7 +57,7 @@ This window's account is the **leader**. Relay has other Claude accounts (**work
 
 ## When a worker is not available
 - \`NO_WORKER_AVAILABLE\`: every worker is at its limit (the reply says when the first is back). Tell the user in one sentence, then do the work yourself if it is reasonable, or offer to wait.
-- \`BUSY\`: a worker is already running in that folder. Never run two workers in one folder at once. Wait, or work on something that doesn't touch those files.
+- \`BUSY\`: another worker is still changing the same files. Wait, or give jobs on different parts of the project their own scope.
 - If a worker says a command or edit was refused by permissions, tell the user: they can allow more in Relay's settings.
 
 Never put passwords, tokens or other secrets into \`task\` or \`context\`.
@@ -159,4 +165,9 @@ async function removeAll({ logins = false } = {}) {
   return { logins: true };
 }
 
-module.exports = { install, uninstall, removeAll, status, SKILL };
+// A newer Relay may tell the window's Claude more (or differently) how to hand work over: keep an installed skill current.
+function refreshSkill() {
+  try { if (skillInstalled() && fs.readFileSync(skillFile(), 'utf8') !== SKILL) fs.writeFileSync(skillFile(), SKILL); } catch { /* next start */ }
+}
+
+module.exports = { install, uninstall, removeAll, status, refreshSkill, SKILL };

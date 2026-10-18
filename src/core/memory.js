@@ -217,7 +217,7 @@ const queueDir = (cwd) => path.join(projectDir(cwd), 'queue');
 
 function joinQueue(cwd, info = {}) {
   const now = Date.now();
-  const mine = { pid: process.pid, token: fslock.token(), at: now, beat: now, thread: info.thread || '' };
+  const mine = { pid: process.pid, token: fslock.token(), at: now, beat: now, thread: info.thread || '', scopes: info.scopes || null };
   const f = path.join(queueDir(cwd), `${String(now).padStart(15, '0')}-${process.pid}-${mine.token}.json`);
   writeJson(f, mine);
   return { token: mine.token, release: own(f, mine) };
@@ -268,7 +268,71 @@ function listRuns() {
   return out;
 }
 
+// ---- scoped locks: jobs that change different parts of one project run side by side ----
+// A job names the folders it will change (its scopes, absolute paths inside or equal to the project folder). Two jobs
+// clash when one's scope contains the other's; a job without scopes reserves the whole project folder. Each holder is a
+// file in <project>/locks/, created and checked under one file lock so two jobs never both decide they are clear.
+const locksDir = (cwd) => path.join(projectDir(cwd), 'locks');
+const norm = (p) => path.resolve(p).replace(/[\\/]+$/, '');
+function overlaps(a, b) {
+  const x = norm(a).toLowerCase();
+  const y = norm(b).toLowerCase();
+  return x === y || x.startsWith(y + path.sep) || y.startsWith(x + path.sep);
+}
+const scopesOf = (cwd, t) => (t && Array.isArray(t.scopes) && t.scopes.length ? t.scopes : [cwd]);
+const clash = (cwd, a, b) => scopesOf(cwd, a).some((x) => scopesOf(cwd, b).some((y) => overlaps(x, y)));
+
+function liveScopeLocks(cwd) {
+  const dir = locksDir(cwd);
+  let names = [];
+  try { names = fs.readdirSync(dir).filter((n) => n.endsWith('.json')); } catch { /* none yet */ }
+  const out = [];
+  for (const n of names) {
+    const t = readLock(path.join(dir, n));
+    if (t && !t.unreadable && !lockStale(t)) out.push(t);
+  }
+  const legacy = lockHolder(cwd); // a whole-folder lock from an older Relay tool still counts
+  if (legacy) out.push({ ...legacy, scopes: null });
+  return out;
+}
+
+// One attempt: { release } when this job now holds its scopes, else { busy: <a holder it clashes with> }.
+function acquireScopes(cwd, scopes, info = {}) {
+  const dir = locksDir(cwd);
+  fs.mkdirSync(dir, { recursive: true });
+  const now = Date.now();
+  const mine = { pid: process.pid, token: fslock.token(), at: now, beat: now, thread: '', ...info, scopes: scopes && scopes.length ? scopes : null };
+  const f = path.join(dir, `${now}-${process.pid}-${mine.token}.json`);
+  let busy = null;
+  let whole = null;
+  try {
+    fslock.withFileLock(path.join(dir, 'all'), () => {
+      for (const n of fs.readdirSync(dir).filter((x) => x.endsWith('.json'))) { // clear holders that stopped beating
+        const p = path.join(dir, n);
+        const t = readLock(p);
+        if (t && lockStale(t)) { try { fs.rmSync(p, { force: true }); } catch { /* next time */ } }
+      }
+      if (!mine.scopes) {
+        // The whole folder: the same lock.json as always (older Relay tools see it), once no scoped job holds a part.
+        busy = liveScopeLocks(cwd).find((t) => t.scopes) || null;
+        if (!busy) {
+          whole = acquireLock(cwd, info);
+          if (whole.busy) busy = whole.busy;
+        }
+      } else {
+        busy = liveScopeLocks(cwd).find((t) => clash(cwd, t, mine)) || null;
+        if (!busy) writeJson(f, mine);
+      }
+    });
+  } catch {
+    busy = busy || { thread: '?' };
+  }
+  if (busy) return { busy };
+  return whole ? whole : { release: own(f, mine) };
+}
+
 module.exports = {
   projectDir, listThreads, getThread, putThread, appendLedger, readLedger, recentRuns, ledgerText,
   acquireLock, lockHolder, joinQueue, queue, releaseAll, writeRun, removeRun, listRuns, STALE_MS,
+  acquireScopes, liveScopeLocks, overlaps, clash,
 };

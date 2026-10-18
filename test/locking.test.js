@@ -192,7 +192,7 @@ test('queue: a waiting job shows that it waits, can be cancelled, and gives up w
     run = memory.listRuns().find((r) => r.thread === 'q' && r.status === 'waiting') || null;
   }
   assert.ok(run, 'the run file says it is waiting');
-  assert.match(run.lastLine, /Waiting for another worker in this folder \(thread holder\)/);
+  assert.match(run.lastLine, /Waiting for another worker changing the same files \(thread holder\)/);
   assert.match(progress[0] || '', /Waiting for another worker/, 'the dispatcher hears it too');
   assert.equal(tickets(memory, cwd).length, 1, 'it holds a place in line');
   ctl.abort();

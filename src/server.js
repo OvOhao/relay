@@ -483,7 +483,7 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
       setInterval(settle, 30 * 60 * 1000).unref();
       setInterval(syncLeaderFromDesktop, 10 * 1000).unref();
       // Keep each worker account's settings (your settings + the commands workers may run) current.
-      setTimeout(() => { if (!removed) setup.syncAllAccounts(); }, 300).unref();
+      setTimeout(() => { if (!removed) { setup.syncAllAccounts(); connect.refreshSkill(); } }, 300).unref();
       setInterval(() => { if (!removed) setup.syncAllAccounts(); }, 20 * 1000).unref();
       setTimeout(syncLeaderFromDesktop, 500).unref();
       setTimeout(probeCli, 800).unref();
