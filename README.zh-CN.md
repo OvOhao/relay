@@ -112,6 +112,16 @@ Claude 会替你调用这些工具：
 
 任务运行时，菜单栏图标旁的数字会加一，面板里能看到是哪个账号在做、正在做哪一步。
 
+## Worker 能做什么
+
+worker 在后台运行，没有人能点「批准」。所以它能做什么，由 **设置** 决定：
+
+- **权限模式**：*auto* 和你自己的窗口一样，常规命令直接执行，有风险的操作会被拒绝。也可以选「修改文件」「完全放手」「只读」。
+- **Worker 可以直接运行的命令**：Claude Code 的权限规则，比如 `Bash(npm test)`。
+- **Worker 永远不能运行的命令**：不管命令怎么写都会被拒绝，包括完整路径、`./`、放在 `cd … && …` 里。适合放只该由你或你的窗口来做的事，比如 `Bash(git push *)`。
+
+Relay 会把这些规则写进每个 worker 账号自己的 `settings.json`（你的设置加上这些规则），并保持更新。你自己的 `~/.claude/settings.json` 不会被改动。
+
 ## 工作原理
 
 ```mermaid
@@ -158,7 +168,7 @@ flowchart LR
 ## 开发
 
 ```bash
-npm test                            # 73 个测试，用假的 claude，不消耗额度
+npm test                            # 79 个测试，用假的 claude，不消耗额度
 node src/dev.js --demo              # 在浏览器里看面板
 npx electron scripts/make-icon.js   # 从 build/logo.svg 和 build/mark.svg 生成图标
 npx electron scripts/screenshots.js # 用 demo 数据生成上面的截图

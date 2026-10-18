@@ -112,6 +112,16 @@ Claude calls the tools for you:
 
 While a job runs, the number next to the menu-bar icon counts it and the panel shows which account is on it and what it is doing.
 
+## What workers may do
+
+Workers run in the background, so nobody is there to approve a command. **Settings** decides what they may do:
+
+- **Permission mode.** *Auto* works like your own window: routine commands run, risky ones are refused. *Edit files*, *Do everything* and *Read only* are there too.
+- **Commands workers may run.** Claude Code permission rules such as `Bash(npm test)`.
+- **Commands workers may never run.** Refused however the command is written: a full path, `./`, or inside `cd … && …`. Use it for what only you or your own window should do, such as `Bash(git push *)`.
+
+Relay writes these rules into each worker account's own `settings.json` (your settings plus the rules) and keeps them current. Your own `~/.claude/settings.json` is never changed.
+
 ## How it works
 
 ```mermaid
@@ -158,7 +168,7 @@ A real plan-limit takeover (tested with simulated limit events and a fake `claud
 ## Development
 
 ```bash
-npm test                            # 73 tests against a fake claude: no usage spent
+npm test                            # 79 tests against a fake claude: no usage spent
 node src/dev.js --demo              # the panel in a browser
 npx electron scripts/make-icon.js   # icons from build/logo.svg and build/mark.svg
 npx electron scripts/screenshots.js # the screenshots above, from the demo

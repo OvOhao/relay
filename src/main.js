@@ -257,6 +257,8 @@ if (process.argv.includes('--disconnect')) {
       },
     });
     server.takeovers.on('update', updateBusy);
+    // Worker sessions run Relay's guard hook with this same program (see setup.hookRuntime).
+    try { require('fs').writeFileSync(require('path').join(store.home(), 'runtime.json'), JSON.stringify({ execPath: process.execPath })); } catch { /* the guard falls back to the caller's runtime */ }
 
     if (isMac) {
       // "…Template" images are drawn by macOS in the menu bar's own colour; the @2x file is picked up by itself.
