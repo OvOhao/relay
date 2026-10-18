@@ -41,6 +41,19 @@ function prepareConfigDir(dir) {
 // settings, not passed on the command line only, because Claude Code applies an account's own allow rules whatever
 // folder it runs in and whoever starts it (a project's rules were not applied to worker sessions), and a Relay tool
 // started by an older Claude window still gets them. Your own ~/.claude/settings.json is never changed.
+// The program that runs Relay's guard hook (src/guard.js) for worker sessions: this Electron (or Node) itself, or the
+// one the Relay app recorded in runtime.json when this is a plain Node process (the command line, the demo).
+const GUARD = path.join(__dirname, '..', 'guard.js');
+function hookRuntime() {
+  if (process.versions.electron) return process.execPath;
+  try { return JSON.parse(fs.readFileSync(path.join(store.home(), 'runtime.json'), 'utf8')).execPath || process.execPath; } catch { return process.execPath; }
+}
+const GUARD_MARK = 'relay-guard';
+const guardHook = () => ({
+  matcher: 'Bash',
+  hooks: [{ type: 'command', timeout: 10, command: `ELECTRON_RUN_AS_NODE=1 "${hookRuntime()}" "${GUARD}" # ${GUARD_MARK}` }],
+});
+
 function workerSettings() {
   let base = {};
   try {
@@ -48,11 +61,23 @@ function workerSettings() {
   } catch (e) {
     base = e.code === 'ENOENT' ? {} : null; // no settings of yours: just the rules; unreadable ones: left as they are
   }
-  const rules = store.cleanAllowedTools(store.loadSettings().allowedTools).rules;
+  const settings = store.loadSettings();
+  const rules = store.cleanAllowedTools(settings.allowedTools).rules;
+  const never = store.cleanAllowedTools(settings.deniedTools).rules;
   if (base === null) return null; // unreadable: copy it as it is
-  if (!rules.length) return base;
-  const allow = Array.isArray(base.permissions?.allow) ? base.permissions.allow : [];
-  return { ...base, permissions: { ...(base.permissions || {}), allow: [...allow, ...rules.filter((r) => !allow.includes(r))] } };
+  if (!rules.length && !never.length) return base;
+  const out = { ...base, permissions: { ...(base.permissions || {}) } };
+  const merge = (key, add) => {
+    const have = Array.isArray(out.permissions[key]) ? out.permissions[key] : [];
+    if (add.length) out.permissions[key] = [...have, ...add.filter((r) => !have.includes(r))];
+  };
+  merge('allow', rules);
+  merge('deny', never); // Claude Code's own rules, for the commands written the plain way
+  if (never.length) { // and Relay's guard, for every other way of writing them
+    const pre = (base.hooks?.PreToolUse || []).filter((h) => !JSON.stringify(h).includes(GUARD_MARK));
+    out.hooks = { ...(base.hooks || {}), PreToolUse: [...pre, guardHook()] };
+  }
+  return out;
 }
 
 // Bring a worker account's shared files up to date; cheap enough to call before every run. settings.json is compared

@@ -258,3 +258,67 @@ test('worker accounts get your settings plus the allowed commands in their own s
   setup.syncSharedFiles(w);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(w, 'settings.json'), 'utf8')).permissions.allow, ['Bash(git status)'], 'a removed rule goes again');
 });
+
+// ---- commands workers may never run ----
+test('the guard refuses a never-run command however it is written, and nothing else', () => {
+  const { check } = require(`${SRC}/guard`);
+  const rules = ['Bash(bin/researchctl freeze *)', 'Bash(bin/researchctl idea status *)', 'Bash(bin/researchctl runs kill *)', 'Bash(bin/researchctl server exec *rm *)', 'Bash(git push *)'];
+  const P = '/Users/me/My Project';
+  const refused = [
+    'bin/researchctl freeze add i1 plan.toml',
+    './bin/researchctl freeze check',
+    `"${P}/bin/researchctl" freeze check`,
+    `'${P}/bin/researchctl' freeze add x`,
+    `cd "${P}" && bin/researchctl freeze check`,
+    `cd "${P}"; ls && bin/researchctl idea status i1 GO --reason x`,
+    `RESEARCHCTL_OUT=/tmp/x "${P}/bin/researchctl" runs kill 1017-abc`,
+    'bin/researchctl server exec "rm -rf /data/scratch/x"',
+    'ls | head; git push origin main',
+    'echo hi\nbin/researchctl freeze add a b',
+  ];
+  for (const c of refused) assert.ok(check(c, rules), `should refuse: ${c}`);
+  const allowed = [
+    'bin/researchctl status',
+    `"${P}/bin/researchctl" runs status 1017-abc`,
+    `cd "${P}" && bin/researchctl plan check plan.toml`,
+    'bin/researchctl server exec "ls /data"',
+    'git status && git log -1',
+    'grep -n "freeze" bin/researchctl',
+  ];
+  for (const c of allowed) assert.equal(check(c, rules), null, `should allow: ${c}`);
+});
+
+test('worker settings carry the never-run rules (deny + guard hook); the main login and other hooks stay as they are', () => {
+  const root = sandbox();
+  const store = require(`${SRC}/core/store`);
+  const setup = require(`${SRC}/core/setup`);
+  const hub = process.env.RELAY_HUB;
+  const mine = { permissions: { deny: ['Bash(sudo *)'] }, hooks: { PreToolUse: [{ matcher: 'Edit', hooks: [{ type: 'command', command: 'echo mine' }] }] } };
+  fs.writeFileSync(path.join(hub, 'settings.json'), JSON.stringify(mine));
+  const w = path.join(root, 'home', 'accounts', 'w');
+  setup.prepareConfigDir(w);
+  store.save([store.newAccount('w', w, 'w@x.com')]);
+  store.saveSettings({ deniedTools: ['Bash(git push *)'] });
+  setup.syncAllAccounts();
+  setup.syncAllAccounts(); // twice: the guard hook is not added again
+  const got = JSON.parse(fs.readFileSync(path.join(w, 'settings.json'), 'utf8'));
+  assert.deepEqual(got.permissions.deny, ['Bash(sudo *)', 'Bash(git push *)']);
+  assert.equal(got.hooks.PreToolUse.length, 2);
+  assert.equal(got.hooks.PreToolUse[0].hooks[0].command, 'echo mine');
+  assert.match(got.hooks.PreToolUse[1].hooks[0].command, /guard\.js" # relay-guard$/);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(hub, 'settings.json'), 'utf8')), mine);
+});
+
+test('the guard hook itself: exit 2 with a reason for a never-run command, 0 otherwise', () => {
+  const root = sandbox();
+  const store = require(`${SRC}/core/store`);
+  store.saveSettings({ deniedTools: ['Bash(git push *)'] });
+  const { spawnSync } = require('child_process');
+  const run = (command, tool = 'Bash') => spawnSync(process.execPath, [path.join(SRC, 'guard.js')], { input: JSON.stringify({ tool_name: tool, tool_input: { command } }), env: { ...process.env }, encoding: 'utf8' });
+  const bad = run('cd /x && git push origin main');
+  assert.equal(bad.status, 2);
+  assert.match(bad.stderr, /Relay refused this command: it matches "Bash\(git push \*\)"/);
+  assert.equal(run('git status').status, 0);
+  assert.equal(run('git push x', 'Read').status, 0);
+  void root;
+});

@@ -49,6 +49,7 @@ const T = {
     model_label: 'Model',
     // settings
     set_lang: 'Language', set_perm: 'While taking over, Claude may',
+    perm_auto: 'Decide like your own window (auto)', perm_auto_d: 'Claude Code’s auto mode: routine commands run, risky ones are refused. Works with the rules below.',
     perm_acceptEdits: 'Edit files', perm_acceptEdits_d: 'Changes files in the project. Shell commands are not run.',
     perm_bypassPermissions: 'Do everything', perm_bypassPermissions_d: 'Also runs commands without asking. Only if you trust the projects.',
     perm_plan: 'Read only', perm_plan_d: 'Reads and plans, changes nothing.',
@@ -57,6 +58,9 @@ const T = {
     tools_none: 'None yet: workers can edit files but run no commands (unless “Do everything” is chosen above).',
     tools_add: 'Add a rule…', tools_add_title: 'Allow a command', tools_add_sub: 'A Claude Code permission rule: a tool name, optionally with a pattern in parentheses.',
     tools_label: 'Rule', tools_hint: 'For example: Bash(npm test) · Bash(python3 *) · Bash(git status) · WebFetch', tools_remove: (r) => `Remove ${r}`,
+    set_never: 'Commands workers may never run',
+    never_d: 'Refused for every worker and takeover, however the command is written (a full path, ./, inside cd … && …). Your own window is not affected.',
+    never_none: 'None yet.', never_add: 'Add a rule…', never_add_title: 'Never allow a command', never_hint: 'For example: Bash(git push *) · Bash(bin/tool freeze *) · Bash(ssh server *rm *)',
     set_startup: 'Start with Windows', set_startup_d: 'Relay waits quietly in the tray.',
     set_conn: 'Connection', connected: 'Connected to Claude Code', not_connected: 'Not connected', disconnect: 'Disconnect',
     about: 'About', about_text: 'Relay is an independent tool, not affiliated with Anthropic. Includes code by ZhengGao-30 (MIT).', replay_intro: 'Replay intro',
@@ -121,6 +125,7 @@ const T = {
     model_custom_title: '选择模型', model_custom_sub: '填别名（haiku、sonnet、opus）或完整模型 ID，比如 claude-haiku-5-5。留空表示账号默认。',
     model_label: '模型',
     set_lang: '语言', set_perm: '接管期间允许 Claude',
+    perm_auto: '像你的窗口一样自动判断（auto）', perm_auto_d: '使用 Claude Code 的 auto 模式：常规命令直接执行，有风险的操作会被拒绝。可以和下面的规则一起用。',
     perm_acceptEdits: '修改文件', perm_acceptEdits_d: '可修改项目内的文件，不执行命令。',
     perm_bypassPermissions: '完全放手', perm_bypassPermissions_d: '同时自动执行命令，不再询问。仅当你信任这些项目时使用。',
     perm_plan: '只读', perm_plan_d: '只阅读和规划，不改动任何文件。',
@@ -129,6 +134,9 @@ const T = {
     tools_none: '还没有。worker 可以改文件，但不能运行命令（除非上面选了「完全放手」）。',
     tools_add: '添加规则…', tools_add_title: '允许一条命令', tools_add_sub: 'Claude Code 的权限规则：工具名，括号里可以写匹配规则。',
     tools_label: '规则', tools_hint: '例如：Bash(npm test) · Bash(python3 *) · Bash(git status) · WebFetch', tools_remove: (r) => `删除 ${r}`,
+    set_never: 'Worker 永远不能运行的命令',
+    never_d: '对每个 worker 和接管任务都会拒绝，不管命令怎么写（完整路径、./、放在 cd … && … 里）。不影响你自己的窗口。',
+    never_none: '还没有。', never_add: '添加规则…', never_add_title: '禁止一条命令', never_hint: '例如：Bash(git push *) · Bash(bin/tool freeze *) · Bash(ssh 服务器 *rm *)',
     set_startup: '开机时启动', set_startup_d: 'Relay 会安静地待在托盘里。',
     set_conn: '连接', connected: '已连接 Claude Code', not_connected: '未连接', disconnect: '断开',
     about: '关于', about_text: 'Relay 是独立工具，与 Anthropic 无关联。包含 ZhengGao-30 的代码（MIT 许可）。', replay_intro: '重播开场动画',
@@ -695,11 +703,21 @@ function mainView() {
       h('div', { class: 'panel', role: 'tabpanel', id: 'panel-accounts', 'aria-labelledby': 'tab-accounts', hidden: S.tab !== 'accounts' || undefined }, accountsPanel())),
   ];
 }
-const PERMS = ['acceptEdits', 'bypassPermissions', 'plan'];
+// A list of permission rules in Settings: the commands workers may run, or may never run.
+function ruleList(key, desc, none, addLabel) {
+  const rules = Array.isArray(S.settings[key]) ? S.settings[key] : [];
+  return h('div', { class: 'card list rules' },
+    h('p', { class: 'rules-d' }, desc),
+    rules.length ? rules.map((r, i) => h('div', { class: 'rule-row', 'data-key': `${key}:${r}` },
+      h('code', { class: 'rule selectable' }, r),
+      h('button', { class: 'icon-btn sm', type: 'button', 'data-act': 'rule-remove', 'data-list': key, 'data-i': String(i), 'aria-label': t('tools_remove', r), title: t('tools_remove', r) }, icon('trash'))))
+      : h('p', { class: 'rules-none' }, none),
+    h('div', { class: 'rules-add' }, h('button', { class: 'btn sm', type: 'button', 'data-act': 'rule-add', 'data-list': key }, icon('plus', 'ic sm'), addLabel)));
+}
+const PERMS = ['auto', 'acceptEdits', 'bypassPermissions', 'plan'];
 function settingsView() {
   const lang = S.settings.language === 'zh' ? 'zh' : 'en';
   const perm = S.settings.permissionMode || 'acceptEdits';
-  const rules = Array.isArray(S.settings.allowedTools) ? S.settings.allowedTools : [];
   const group = (id, title, ...body) => h('section', { class: 'group', 'aria-labelledby': `g-${id}` }, h('h2', { class: 'label', id: `g-${id}` }, title), ...body);
   const langBtn = (l, label) => h('button', { class: 'seg-btn', type: 'button', role: 'radio', 'aria-checked': String(lang === l), tabindex: lang === l ? '0' : '-1', 'data-act': 'lang', 'data-lang': l, lang: l === 'zh' ? 'zh-CN' : 'en' }, label);
   return [
@@ -712,13 +730,8 @@ function settingsView() {
       group('perm', t('set_perm'), h('div', { class: 'card list', role: 'radiogroup', 'aria-labelledby': 'g-perm' }, PERMS.map((m) =>
         h('button', { class: 'radio-row', type: 'button', role: 'radio', 'aria-checked': String(m === perm), tabindex: m === perm ? '0' : '-1', 'data-act': 'perm', 'data-mode': m },
           h('i', { class: 'radio' }), h('span', { class: 'rr-text' }, h('b', {}, t(`perm_${m}`)), h('small', {}, t(`perm_${m}_d`))))))),
-      group('tools', t('set_tools'), h('div', { class: 'card list rules' },
-        h('p', { class: 'rules-d' }, t('tools_d')),
-        rules.length ? rules.map((r, i) => h('div', { class: 'rule-row', 'data-key': `rule:${r}` },
-          h('code', { class: 'rule selectable' }, r),
-          h('button', { class: 'icon-btn sm', type: 'button', 'data-act': 'rule-remove', 'data-i': String(i), 'aria-label': t('tools_remove', r), title: t('tools_remove', r) }, icon('trash'))))
-          : h('p', { class: 'rules-none' }, t('tools_none')),
-        h('div', { class: 'rules-add' }, h('button', { class: 'btn sm', type: 'button', 'data-act': 'rule-add' }, icon('plus', 'ic sm'), t('tools_add'))))),
+      group('tools', t('set_tools'), ruleList('allowedTools', t('tools_d'), t('tools_none'), t('tools_add'))),
+      group('never', t('set_never'), ruleList('deniedTools', t('never_d'), t('never_none'), t('never_add'))),
       S.canAutoStart ? group('startup', t('set_startup'), h('div', { class: 'card row' },
         h('div', { class: 'row-text' }, h('b', {}, t('set_startup')), h('small', {}, t('set_startup_d'))),
         switchBtn(S.settings.startAtLogin !== false, 'autostart', t('set_startup')))) : null,
@@ -1003,14 +1016,20 @@ const ACT = {
   }),
   disconnect: guard(async () => { S.connect = await api('/api/disconnect', {}); render(); }),
   autostart: guard(async () => { S.settings = await api('/api/settings', { startAtLogin: S.settings.startAtLogin === false }); render(); }),
-  'rule-add': () => inputSheet({
-    title: t('tools_add_title'), sub: t('tools_add_sub'), label: t('tools_label'), placeholder: 'Bash(npm test)', hint: t('tools_hint'), okLabel: t('save'),
-    submit: async (rule) => { S.settings = await api('/api/settings', { allowedTools: [...(S.settings.allowedTools || []), rule] }); render(); },
-  }),
+  'rule-add': (el) => {
+    const key = el.dataset.list === 'deniedTools' ? 'deniedTools' : 'allowedTools';
+    const never = key === 'deniedTools';
+    inputSheet({
+      title: t(never ? 'never_add_title' : 'tools_add_title'), sub: t('tools_add_sub'), label: t('tools_label'),
+      placeholder: never ? 'Bash(git push *)' : 'Bash(npm test)', hint: t(never ? 'never_hint' : 'tools_hint'), okLabel: t('save'),
+      submit: async (rule) => { S.settings = await api('/api/settings', { [key]: [...(S.settings[key] || []), rule] }); render(); },
+    });
+  },
   'rule-remove': guard(async (el) => {
-    const rules = [...(S.settings.allowedTools || [])];
+    const key = el.dataset.list === 'deniedTools' ? 'deniedTools' : 'allowedTools';
+    const rules = [...(S.settings[key] || [])];
     rules.splice(Number(el.dataset.i), 1);
-    S.settings = await api('/api/settings', { allowedTools: rules });
+    S.settings = await api('/api/settings', { [key]: rules });
     render();
   }),
   pin: guard(async () => { S.settings = await api('/api/settings', { panelPinned: !S.settings.panelPinned }); render(); }),

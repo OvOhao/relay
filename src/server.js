@@ -231,16 +231,22 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
 
     'POST /api/settings': (body) => {
       const before = store.loadSettings().language;
-      const patch = pick(body, ['permissionMode', 'extraArgs', 'allowedTools', 'startAtLogin', 'language', 'panelPinned']);
+      const patch = pick(body, ['permissionMode', 'extraArgs', 'allowedTools', 'deniedTools', 'startAtLogin', 'language', 'panelPinned']);
+      if ('permissionMode' in patch && !PERMISSION_MODES.includes(patch.permissionMode)) throw new Error(`Unknown permission mode: ${patch.permissionMode}`);
       if ('panelPinned' in patch) patch.panelPinned = !!patch.panelPinned;
       if ('allowedTools' in patch) {
         const { rules, bad } = store.cleanAllowedTools(patch.allowedTools);
         if (bad.length) throw new Error(`Not a permission rule: ${bad.join(', ')}. Use a tool name, optionally with a pattern in parentheses, e.g. Bash(npm test).`);
         patch.allowedTools = rules;
       }
+      if ('deniedTools' in patch) {
+        const { rules, bad } = store.cleanAllowedTools(patch.deniedTools);
+        if (bad.length) throw new Error(`Not a permission rule: ${bad.join(', ')}. Use a tool name, optionally with a pattern in parentheses, e.g. Bash(git push *).`);
+        patch.deniedTools = rules;
+      }
       const next = store.saveSettings(patch);
       if ('startAtLogin' in body) shell.setAutoStart?.(!!next.startAtLogin);
-      if ('allowedTools' in patch) setup.syncAllAccounts(); // every worker account gets the new rules right away
+      if ('allowedTools' in patch || 'deniedTools' in patch) setup.syncAllAccounts(); // every worker account gets the new rules right away
       if (next.language !== before) shell.onLanguage?.(next.language);
       return next;
     },

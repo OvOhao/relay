@@ -160,7 +160,7 @@ function earliestUnblock(now = nowSec(), filter = null) {
 }
 
 // startAtLogin defaults to on: the hooks and the tool can only reach a Relay that is running.
-const DEFAULT_SETTINGS = { permissionMode: 'acceptEdits', extraArgs: '', allowedTools: [], claudePath: '', startAtLogin: true, language: 'en' };
+const DEFAULT_SETTINGS = { permissionMode: 'acceptEdits', extraArgs: '', allowedTools: [], deniedTools: [], claudePath: '', startAtLogin: true, language: 'en' };
 
 // Commands (and other tools) workers may use without asking: Claude Code permission rules, passed to every worker and
 // takeover run as --allowedTools. A rule is a tool name, optionally with a pattern in parentheses: "Bash(npm test)",
