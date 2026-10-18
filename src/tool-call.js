@@ -1,10 +1,11 @@
 'use strict';
 // Runs one tool call in a process of its own, started by the MCP server for every call: each call therefore runs
 // Relay's code as it is on disk now, so a Claude window that stays open for days still gets every Relay update.
-// In:  one JSON line on stdin, { name, args }.
+// In:  one JSON line on stdin, { name, args }; later a line "cancel" (the call was cancelled or the window is closing).
 // Out: JSON lines on stdout: { progress: "…" } while it works, then { result: { text, isError } }.
-// SIGTERM (the call was cancelled or the window is closing) stops the job cleanly: its worker is stopped, its folder
-// and run file freed, and the result says "Cancelled". It also stops by itself if the MCP server is gone.
+// "cancel", the end of stdin (the MCP server is gone) or SIGTERM stop the job cleanly: its worker is stopped, its
+// folder and run file freed, and the result says "Cancelled". (A line on stdin works on Windows, where a signal
+// would just end the process before it could clean up.)
 
 const memory = require('./core/memory');
 const { runWorker, statusText } = require('./core/workers');
@@ -33,22 +34,24 @@ const out = (msg) => process.stdout.write(`${JSON.stringify(msg)}\n`);
 const controller = new AbortController();
 process.on('SIGTERM', () => controller.abort());
 process.on('SIGINT', () => controller.abort());
-const parent = process.ppid;
-setInterval(() => { if (process.ppid !== parent) controller.abort(); }, 2000).unref(); // the MCP server died
 process.on('uncaughtException', (e) => process.stderr.write(`[relay-call] ${(e && e.stack) || e}\n`));
 
-let input = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', (d) => { input += d; });
-process.stdin.on('end', async () => {
+async function run(line) {
   let result;
   try {
-    const { name, args } = JSON.parse(input);
-    result = await callTool(name, args || {}, { onProgress: (line) => out({ progress: line }), signal: controller.signal });
+    const { name, args } = JSON.parse(line);
+    result = await callTool(name, args || {}, { onProgress: (l) => out({ progress: l }), signal: controller.signal });
   } catch (e) {
     result = { text: `Relay error: ${(e && e.message) || e}`, isError: true };
   }
   out({ result });
   memory.releaseAll();
   process.exit(0);
+}
+
+let started = false;
+const rl = require('readline').createInterface({ input: process.stdin });
+rl.on('line', (line) => {
+  if (!started) { started = true; run(line); } else if (line.trim() === 'cancel') controller.abort();
 });
+rl.on('close', () => { if (started) controller.abort(); else process.exit(0); }); // the MCP server is gone

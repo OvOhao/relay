@@ -50,6 +50,9 @@ function reportIdentity() {
 // Jobs this window is running, by JSON-RPC request id: a cancel or the window closing stops exactly these.
 const inflight = new Map(); // id -> { child, done }
 
+// Ask a tool-call process to stop cleanly (a line on its stdin works on every system).
+const stop = (child) => { try { child?.stdin.write('cancel\n'); } catch { /* already gone */ } };
+
 // One tool call, in its own process; resolves { text, isError }.
 function callTool(name, args, progressToken, id) {
   reportIdentity();
@@ -76,7 +79,7 @@ function callTool(name, args, progressToken, id) {
     child.on('error', (e) => resolve({ text: `Relay error: ${e.message}`, isError: true }));
     child.on('close', (code) => resolve(result || { text: `Relay error: the tool process ended (code ${code}) without an answer.`, isError: true }));
     child.stdin.on('error', () => {});
-    child.stdin.end(JSON.stringify({ name, args }));
+    child.stdin.write(`${JSON.stringify({ name, args })}\n`); // stdin stays open: "cancel" goes the same way
   });
 }
 
@@ -117,7 +120,7 @@ async function handle(msg) {
       // The window stopped this call: its process stops its worker (the whole process tree), frees its folder and
       // run file, and answers the call itself with a short "Cancelled." once everything is cleaned up.
       const job = inflight.get(params.requestId);
-      if (job) { log('cancelled request', params.requestId, params.reason || ''); job.child?.kill('SIGTERM'); }
+      if (job) { log('cancelled request', params.requestId, params.reason || ''); stop(job.child); }
       return undefined;
     }
     default:
@@ -141,7 +144,7 @@ async function shutdown(code) {
   if (closing) return;
   closing = true;
   const jobs = [...inflight.values()];
-  for (const j of jobs) j.child?.kill('SIGTERM'); // each stops its worker and frees its folder, then exits
+  for (const j of jobs) stop(j.child); // each stops its worker and frees its folder, then exits
   const settle = Promise.allSettled(jobs.map((j) => j.done));
   await Promise.race([settle, new Promise((r) => setTimeout(r, 8000).unref())]);
   for (const j of jobs) { try { j.child?.kill('SIGKILL'); } catch { /* gone */ } } // still not done: no leftovers
@@ -156,4 +159,4 @@ process.on('unhandledRejection', (e) => log('unhandled rejection (kept running):
 process.on('SIGTERM', () => shutdown(143));
 process.on('SIGINT', () => shutdown(130));
 // Last resort when the process ends some other way: tell what is left to stop (each frees its own locks).
-process.on('exit', () => { for (const j of inflight.values()) { try { j.child?.kill('SIGTERM'); } catch { /* gone */ } } });
+process.on('exit', () => { for (const j of inflight.values()) stop(j.child); });

@@ -346,13 +346,13 @@ test('scoped locks: different parts of a project at once, overlapping ones and w
 
 test('scope must stay inside the project folder; the folder itself means the whole folder', () => {
   const { cleanScopes } = require(`${SRC}/core/workers`);
-  const cwd = '/tmp/proj';
-  assert.deepEqual(cleanScopes(cwd, ['ideas/i1', 'papers/p2']).scopes, ['/tmp/proj/ideas/i1', '/tmp/proj/papers/p2']);
-  assert.deepEqual(cleanScopes(cwd, 'ideas/i1').scopes, ['/tmp/proj/ideas/i1']);
+  const cwd = path.resolve(os.tmpdir(), 'proj');
+  assert.deepEqual(cleanScopes(cwd, ['ideas/i1', 'papers/p2']).scopes, [path.join(cwd, 'ideas', 'i1'), path.join(cwd, 'papers', 'p2')]);
+  assert.deepEqual(cleanScopes(cwd, 'ideas/i1').scopes, [path.join(cwd, 'ideas', 'i1')]);
   assert.equal(cleanScopes(cwd, null).scopes, null);
   assert.equal(cleanScopes(cwd, ['.']).scopes, null);
   assert.match(cleanScopes(cwd, ['../other']).error, /inside cwd/);
-  assert.match(cleanScopes(cwd, ['/etc']).error, /inside cwd/);
+  assert.match(cleanScopes(cwd, [path.resolve(os.tmpdir(), 'elsewhere')]).error, /inside cwd/);
 });
 
 test('two jobs on different scopes run at once on two workers; a third on an overlapping scope waits its turn', async () => {
