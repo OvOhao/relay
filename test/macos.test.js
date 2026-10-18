@@ -390,3 +390,12 @@ test('two jobs on different scopes run at once on two workers; a third on an ove
     delete process.env.RELAY_LOCK_BEAT_MS;
   }
 });
+
+test('every source file parses (main.js and the panel are not loaded by the other tests)', () => {
+  const { spawnSync } = require('child_process');
+  const files = ['src', 'src/core', 'ui', 'scripts'].flatMap((d) => fs.readdirSync(path.join(__dirname, '..', d)).filter((f) => f.endsWith('.js')).map((f) => path.join(__dirname, '..', d, f)));
+  for (const f of files) {
+    const r = spawnSync(process.execPath, ['--check', f], { encoding: 'utf8' });
+    assert.equal(r.status, 0, `${path.relative(path.join(__dirname, '..'), f)}: ${r.stderr}`);
+  }
+});

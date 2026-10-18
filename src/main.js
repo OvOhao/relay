@@ -245,7 +245,8 @@ if (process.argv.includes('--disconnect')) {
         setAutoStart,
         quit: () => { quitting = true; app.quit(); },
         onLanguage: () => { buildMenu(); setTooltip(); },
-        onRuns: (runs) => { workerRuns = runs.filter((r) => r.status !== 'waiting').length; // queued jobs are not counted as working busyCount = (server?.takeovers.snapshot().active.length || 0) + workerRuns; setTooltip(); },
+        // queued jobs are not counted as working: they have no worker yet
+        onRuns: (runs) => { workerRuns = runs.filter((r) => r.status !== 'waiting').length; busyCount = (server?.takeovers.snapshot().active.length || 0) + workerRuns; setTooltip(); },
         notify: (n, accounts) => {
           const make = MSG[n.kind];
           if (!make || !Notification.isSupported()) return;
