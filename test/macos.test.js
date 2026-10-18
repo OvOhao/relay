@@ -399,3 +399,40 @@ test('every source file parses (main.js and the panel are not loaded by the othe
     assert.equal(r.status, 0, `${path.relative(path.join(__dirname, '..'), f)}: ${r.stderr}`);
   }
 });
+
+// ---- several workers in one folder ----
+test('by default several jobs run in one folder at once, one per free worker; with every worker busy a job waits', async () => {
+  const root = sandbox();
+  process.env.FAKE_DELAY_MS = '1500';
+  process.env.RELAY_BUSY_POLL_MS = '100';
+  try {
+    const store = require(`${SRC}/core/store`);
+    const memory = require(`${SRC}/core/memory`);
+    const { runWorker } = require(`${SRC}/core/workers`);
+    store.save([['lead', true], ['w1'], ['w2']].map(([n, desktop]) => ({ ...store.newAccount(n, path.join(root, 'home', 'accounts', n), `${n}@x.com`), desktop: !!desktop })));
+    assert.equal(store.loadSettings().folderLock, false);
+    assert.equal(store.loadSettings().jobsPerWorker, 1);
+    const cwd = path.join(root, 'proj');
+    fs.mkdirSync(cwd, { recursive: true });
+    let maxRunning = 0;
+    let sawWaitingForWorker = false;
+    const perAccount = new Map();
+    const watch = setInterval(() => {
+      const runs = memory.listRuns();
+      const running = runs.filter((r) => r.status === 'running' && r.account);
+      maxRunning = Math.max(maxRunning, running.length);
+      for (const r of running) perAccount.set(r.account, Math.max(perAccount.get(r.account) || 0, running.filter((x) => x.account === r.account).length));
+      if (runs.some((r) => r.status === 'waiting' && /free worker/.test(r.lastLine || ''))) sawWaitingForWorker = true;
+    }, 40);
+    const out = await Promise.all(['a', 'b', 'c'].map((n) => runWorker({ task: n, cwd, thread: n }))); // no scope, same folder
+    clearInterval(watch);
+    assert.deepEqual(out.map((o) => o.code), ['done', 'done', 'done']);
+    assert.equal(maxRunning, 2, 'two workers, so two jobs at once in the same folder');
+    assert.ok([...perAccount.values()].every((n) => n === 1), 'never two jobs on one worker');
+    assert.ok(sawWaitingForWorker, 'the third waited for a free worker');
+    assert.equal(memory.lockHolder(cwd), null, 'no folder lock was taken');
+  } finally {
+    delete process.env.FAKE_DELAY_MS;
+    delete process.env.RELAY_BUSY_POLL_MS;
+  }
+});

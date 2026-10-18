@@ -282,7 +282,7 @@ function overlaps(a, b) {
 const scopesOf = (cwd, t) => (t && Array.isArray(t.scopes) && t.scopes.length ? t.scopes : [cwd]);
 const clash = (cwd, a, b) => scopesOf(cwd, a).some((x) => scopesOf(cwd, b).some((y) => overlaps(x, y)));
 
-function liveScopeLocks(cwd) {
+function liveScopeLocks(cwd, { legacy = true } = {}) {
   const dir = locksDir(cwd);
   let names = [];
   try { names = fs.readdirSync(dir).filter((n) => n.endsWith('.json')); } catch { /* none yet */ }
@@ -291,13 +291,13 @@ function liveScopeLocks(cwd) {
     const t = readLock(path.join(dir, n));
     if (t && !t.unreadable && !lockStale(t)) out.push(t);
   }
-  const legacy = lockHolder(cwd); // a whole-folder lock from an older Relay tool still counts
-  if (legacy) out.push({ ...legacy, scopes: null });
+  const whole = legacy ? lockHolder(cwd) : null; // a whole-folder lock (one job per folder, or an older Relay tool)
+  if (whole) out.push({ ...whole, scopes: null });
   return out;
 }
 
 // One attempt: { release } when this job now holds its scopes, else { busy: <a holder it clashes with> }.
-function acquireScopes(cwd, scopes, info = {}) {
+function acquireScopes(cwd, scopes, info = {}, { legacy = true } = {}) {
   const dir = locksDir(cwd);
   fs.mkdirSync(dir, { recursive: true });
   const now = Date.now();
@@ -320,7 +320,7 @@ function acquireScopes(cwd, scopes, info = {}) {
           if (whole.busy) busy = whole.busy;
         }
       } else {
-        busy = liveScopeLocks(cwd).find((t) => clash(cwd, t, mine)) || null;
+        busy = liveScopeLocks(cwd, { legacy }).find((t) => clash(cwd, t, mine)) || null;
         if (!busy) writeJson(f, mine);
       }
     });

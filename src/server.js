@@ -231,7 +231,13 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
 
     'POST /api/settings': (body) => {
       const before = store.loadSettings().language;
-      const patch = pick(body, ['permissionMode', 'extraArgs', 'allowedTools', 'deniedTools', 'startAtLogin', 'language', 'panelPinned']);
+      const patch = pick(body, ['permissionMode', 'extraArgs', 'allowedTools', 'deniedTools', 'folderLock', 'jobsPerWorker', 'startAtLogin', 'language', 'panelPinned']);
+      if ('folderLock' in patch) patch.folderLock = !!patch.folderLock;
+      if ('jobsPerWorker' in patch) {
+        const n = Number(patch.jobsPerWorker);
+        if (!Number.isInteger(n) || n < 0 || n > 10) throw new Error('Jobs per worker must be a whole number from 0 (no limit) to 10.');
+        patch.jobsPerWorker = n;
+      }
       if ('permissionMode' in patch && !PERMISSION_MODES.includes(patch.permissionMode)) throw new Error(`Unknown permission mode: ${patch.permissionMode}`);
       if ('panelPinned' in patch) patch.panelPinned = !!patch.panelPinned;
       if ('allowedTools' in patch) {

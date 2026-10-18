@@ -34,7 +34,7 @@ function pause(ms, signal) {
 // first served among the jobs it clashes with, across every window. A job that clashes with nobody ahead of it starts
 // at once: jobs on different parts of one project run side by side on different workers. Resolves { lock } once this
 // job holds its scopes, { cancelled } when aborted, { busy: holder } after the time limit.
-async function waitForFolder(cwd, thread, { signal, onWait, scopes = null }) {
+async function waitForFolder(cwd, thread, { signal, onWait, scopes = null, legacy = true }) {
   const me = { scopes };
   const ticket = memory.joinQueue(cwd, { thread, scopes });
   const deadline = Date.now() + queueWaitSec() * 1000;
@@ -46,11 +46,11 @@ async function waitForFolder(cwd, thread, { signal, onWait, scopes = null }) {
       const ahead = (mine < 0 ? [] : line.slice(0, mine)).filter((t) => memory.clash(cwd, t, me));
       let holder = null;
       if (!ahead.length) { // nobody it clashes with is ahead of it (or its ticket was lost: then just try)
-        const lock = memory.acquireScopes(cwd, scopes, { thread });
+        const lock = memory.acquireScopes(cwd, scopes, { thread }, { legacy });
         if (lock.release) return { lock };
         holder = lock.busy;
       } else {
-        holder = memory.liveScopeLocks(cwd).find((t) => memory.clash(cwd, t, me)) || ahead[0];
+        holder = memory.liveScopeLocks(cwd, { legacy }).find((t) => memory.clash(cwd, t, me)) || ahead[0];
       }
       if (Date.now() >= deadline) return { busy: holder || { thread: '?' } };
       onWait(holder || {}, ahead.length);
@@ -155,12 +155,16 @@ async function runWorker({ task, context = '', cwd, thread = '', readOnly = fals
   const run = { project: path.basename(cwd) || cwd, cwd, scopes: scopes ? scopes.map((s) => path.relative(cwd, s)) : null, thread: thread || '', title: given || deriveTitle(task), kind: 'worker', status: 'running', account: null, lastLine: '', startedAt: Date.now() };
   const tick = () => memory.writeRun(runId, { ...run, updatedAt: Date.now() });
 
-  // Another job is changing the same part of this project: wait for it (in arrival order) instead of refusing. The
-  // waiting shows in the panel and, every few seconds, as progress to the dispatcher, which also keeps its call alive.
-  // A read-only job changes nothing, so it never waits and never makes anyone else wait.
+  // Several jobs share one project folder: a job only waits for another when both named the files they change
+  // (scope) and those overlap, or when Settings asks for one job per folder (then a job without scope takes the whole
+  // folder, as before). A read-only job changes nothing, so it never waits and never makes anyone else wait. The
+  // waiting shows in the panel and, every few seconds, as progress to the dispatcher, which keeps its call alive.
+  const settings = store.loadSettings();
+  const folderLock = settings.folderLock === true;
   let reported = 0;
-  const got = readOnly ? { lock: { release: () => {} } } : await waitForFolder(cwd, thread || '(one-off)', {
-    signal, scopes,
+  const needsLock = !readOnly && (folderLock || !!scopes);
+  const got = !needsLock ? { lock: { release: () => {} } } : await waitForFolder(cwd, thread || '(one-off)', {
+    signal, scopes, legacy: folderLock,
     onWait: (holder, ahead) => {
       run.status = 'waiting';
       run.lastLine = `Waiting for another worker changing the same files (thread ${holder.thread || '?'})…${ahead > 1 ? ` ${ahead} jobs ahead.` : ''}`;
@@ -190,6 +194,10 @@ async function runWorker({ task, context = '', cwd, thread = '', readOnly = fals
     engine = new Engine();
     engine.filter = isWorker;
     engine.maxWait = MAX_WAIT_SEC;
+    // One job per worker at a time (Settings): with every worker busy, the job waits for the first one to come free.
+    const per = Number(settings.jobsPerWorker);
+    engine.maxPerAccount = Number.isFinite(per) && per > 0 ? per : null;
+    engine.busyWaitSec = queueWaitSec();
     if (account) { // run on this worker (by name or e-mail) when it is ready; otherwise Relay picks one
       const want = String(account).trim().toLowerCase();
       const a = workers.find((w) => w.name.toLowerCase() === want || (w.email || '').toLowerCase() === want);
@@ -209,7 +217,16 @@ async function runWorker({ task, context = '', cwd, thread = '', readOnly = fals
     // Recorded while the account is chosen (under the cross-process pick lock), so other windows choosing at the
     // same moment already count this run against that account.
     engine.onReserve = (a) => { run.account = a.name; tick(); };
-    engine.on('state', (st) => { run.account = st.account; run.status = st.status === 'waiting' ? 'waiting' : 'running'; run.waitingUntil = st.waitingUntil; tick(); });
+    engine.on('state', (st) => {
+      run.account = st.status === 'waiting' && st.waitingFor === 'worker' ? null : st.account;
+      run.status = st.status === 'waiting' ? 'waiting' : 'running';
+      run.waitingUntil = st.waitingUntil;
+      if (st.waitingFor === 'worker') {
+        run.lastLine = 'Waiting for a free worker: every worker is busy with another job…';
+        if (Date.now() - reported >= WAIT_REPORT_MS) { reported = Date.now(); onProgress(run.lastLine); }
+      }
+      tick();
+    });
     engine.on('item', (it) => {
       if (it.kind === 'init' && it.model) { modelUsed = it.model; run.model = it.model; }
       if (it.kind === 'tool') {
@@ -257,6 +274,10 @@ async function runWorker({ task, context = '', cwd, thread = '', readOnly = fals
   }
   if (engine.status === 'error') {
     const err = engine.lastError;
+    if (err && err.code === 'workers_busy') {
+      keepSession('every worker was busy');
+      return { ok: false, code: 'busy', text: `BUSY: every worker is still busy with other jobs after waiting ${Math.round(queueWaitSec() / 60)} min. Retry later, or do the work yourself.${resumeHint}` };
+    }
     if (err && err.code === 'workers_limited') {
       keepSession('every worker account reached its limit');
       memory.appendLedger(cwd, { thread, account: who, title: ledgerTitle, summary: `NOT FINISHED: every worker account reached its limit (the first is back at ${when(err.until)}).`, files: [...files], ok: false });
