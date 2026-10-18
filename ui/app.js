@@ -7,7 +7,7 @@
 const T = {
   en: {
     app: 'Relay', tabs: 'Sections', tab_overview: 'Overview', tab_accounts: 'Accounts',
-    watching: 'Watching', working_n: (n) => `Working · ${n}`, needs_setup: 'Setup needed',
+    watching: 'Watching', working_n: (n) => `Working · ${n}`, waiting_n: (n) => `${n} waiting`, only_waiting_n: (n) => `Waiting · ${n}`, needs_setup: 'Setup needed',
     settings: 'Settings', open_settings: 'Open settings', back: 'Back',
     // overview
     this_window: 'This window', leader_tag: 'Leader', not_in_pool: 'Not in the pool',
@@ -87,7 +87,7 @@ const T = {
   },
   zh: {
     app: 'Relay', tabs: '分区', tab_overview: '概览', tab_accounts: '账号',
-    watching: '守候中', working_n: (n) => `工作中 · ${n}`, needs_setup: '需要设置',
+    watching: '守候中', working_n: (n) => `工作中 · ${n}`, waiting_n: (n) => `排队 ${n}`, only_waiting_n: (n) => `排队中 · ${n}`, needs_setup: '需要设置',
     settings: '设置', open_settings: '打开设置', back: '返回',
     this_window: '本窗口', leader_tag: '领队', not_in_pool: '不在号池',
     leader_outside: 'Relay 不需要它也能工作。想在这里看它的额度时再加入号池。', add_this: '加入号池',
@@ -629,8 +629,11 @@ function setupCard() {
 /* ---------- views ---------- */
 function titlebar() {
   const st = setupStatus();
-  const busy = S.jobs.active.length + S.runs.length;
-  const pill = busy ? ['busy', t('working_n', busy)] : st.complete ? ['ok', t('watching')] : ['setup', t('needs_setup')];
+  // Running and queued jobs are counted apart: a queued job has no worker yet, so no account shows it as working.
+  const waiting = S.runs.filter((r) => r.status === 'waiting').length;
+  const running = S.jobs.active.length + S.runs.length - waiting;
+  const label = running ? `${t('working_n', running)}${waiting ? ` · ${t('waiting_n', waiting)}` : ''}` : t('only_waiting_n', waiting);
+  const pill = running || waiting ? ['busy', label] : st.complete ? ['ok', t('watching')] : ['setup', t('needs_setup')];
   return [
     h('div', { class: 'brand' }, markSvg(), h('span', {}, t('app'))),
     h('span', { class: `pill ${pill[0]}`, role: 'status' }, h('i', { class: 'dot' }), pill[1]),

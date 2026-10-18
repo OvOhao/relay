@@ -322,3 +322,71 @@ test('the guard hook itself: exit 2 with a reason for a never-run command, 0 oth
   assert.equal(run('git push x', 'Read').status, 0);
   void root;
 });
+
+// ---- jobs on different parts of a project run side by side ----
+test('scoped locks: different parts of a project at once, overlapping ones and whole-folder ones exclusive', () => {
+  const root = sandbox();
+  const memory = require(`${SRC}/core/memory`);
+  const cwd = path.join(root, 'proj');
+  fs.mkdirSync(cwd, { recursive: true });
+  const at = (...p) => path.join(cwd, ...p);
+  const a = memory.acquireScopes(cwd, [at('ideas', 'i1')], { thread: 'a' });
+  assert.ok(a.release);
+  const b = memory.acquireScopes(cwd, [at('ideas', 'i2')], { thread: 'b' });
+  assert.ok(b.release, 'a different idea runs at the same time');
+  assert.equal(memory.acquireScopes(cwd, [at('ideas', 'i1', 'code')], { thread: 'c' }).busy.thread, 'a', 'inside a held scope: waits');
+  assert.ok(memory.acquireScopes(cwd, [at('ideas')], { thread: 'd' }).busy, 'around a held scope: waits');
+  assert.ok(memory.acquireScopes(cwd, null, { thread: 'e' }).busy, 'the whole folder: waits');
+  assert.ok(!memory.acquireScopes(cwd, [at('ideas', 'i10')], { thread: 'f' }).busy, 'i10 is not inside i1');
+  a.release(); b.release(); memory.releaseAll();
+  const legacy = memory.acquireLock(cwd, { thread: 'old-relay' }); // an older Relay tool holds the whole folder
+  assert.equal(memory.acquireScopes(cwd, [at('ideas', 'i3')], { thread: 'g' }).busy.thread, 'old-relay');
+  legacy.release();
+});
+
+test('scope must stay inside the project folder; the folder itself means the whole folder', () => {
+  const { cleanScopes } = require(`${SRC}/core/workers`);
+  const cwd = '/tmp/proj';
+  assert.deepEqual(cleanScopes(cwd, ['ideas/i1', 'papers/p2']).scopes, ['/tmp/proj/ideas/i1', '/tmp/proj/papers/p2']);
+  assert.deepEqual(cleanScopes(cwd, 'ideas/i1').scopes, ['/tmp/proj/ideas/i1']);
+  assert.equal(cleanScopes(cwd, null).scopes, null);
+  assert.equal(cleanScopes(cwd, ['.']).scopes, null);
+  assert.match(cleanScopes(cwd, ['../other']).error, /inside cwd/);
+  assert.match(cleanScopes(cwd, ['/etc']).error, /inside cwd/);
+});
+
+test('two jobs on different scopes run at once on two workers; a third on an overlapping scope waits its turn', async () => {
+  const root = sandbox();
+  process.env.FAKE_DELAY_MS = '1500';
+  process.env.RELAY_LOCK_BEAT_MS = '200';
+  try {
+    const store = require(`${SRC}/core/store`);
+    const memory = require(`${SRC}/core/memory`);
+    const { runWorker } = require(`${SRC}/core/workers`);
+    store.save([['lead', true], ['w1'], ['w2']].map(([n, desktop]) => ({ ...store.newAccount(n, path.join(root, 'home', 'accounts', n), `${n}@x.com`), desktop: !!desktop })));
+    const cwd = path.join(root, 'proj');
+    fs.mkdirSync(path.join(cwd, 'ideas', 'i1'), { recursive: true });
+    fs.mkdirSync(path.join(cwd, 'ideas', 'i2'), { recursive: true });
+    let together = false;
+    let accounts = new Set();
+    const watch = setInterval(() => {
+      const running = memory.listRuns().filter((r) => r.status === 'running' && r.account);
+      if (running.length >= 2) { together = true; running.forEach((r) => accounts.add(r.account)); }
+    }, 50);
+    const jobs = [
+      runWorker({ task: 'one', cwd, thread: 'one', scope: ['ideas/i1'] }),
+      runWorker({ task: 'two', cwd, thread: 'two', scope: ['ideas/i2'] }),
+    ];
+    await new Promise((r) => setTimeout(r, 300));
+    jobs.push(runWorker({ task: 'three', cwd, thread: 'three', scope: ['ideas/i1/sub'] }));
+    const out = await Promise.all(jobs);
+    clearInterval(watch);
+    assert.deepEqual(out.map((o) => o.code), ['done', 'done', 'done']);
+    assert.ok(together, 'the two jobs were running at the same moment');
+    assert.deepEqual([...accounts].sort(), ['w1', 'w2'], 'on two different workers');
+    assert.match(out[0].text + out[1].text, /worker/);
+  } finally {
+    delete process.env.FAKE_DELAY_MS;
+    delete process.env.RELAY_LOCK_BEAT_MS;
+  }
+});

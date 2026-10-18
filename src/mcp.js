@@ -1,53 +1,33 @@
 #!/usr/bin/env node
 'use strict';
-// Relay's MCP server (stdio). Claude Code starts one per session; it gives the window's Claude three
-// tools so it can hand big jobs to worker accounts. Newline-delimited JSON-RPC 2.0, no dependencies.
-// stdout carries protocol messages only: all logging goes to stderr.
+// Relay's MCP server (stdio). Claude Code starts one per session; it gives the window's Claude three tools so it can
+// hand big jobs to worker accounts. Newline-delimited JSON-RPC 2.0, no dependencies. stdout carries protocol messages
+// only: all logging goes to stderr.
+// This process only speaks the protocol: every tool call runs in a new process of its own (tool-call.js), so it always
+// runs Relay's current code, and the tool definitions are read again when they change on disk (the window is told).
 
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const readline = require('readline');
+const { spawn } = require('child_process');
 const store = require('./core/store');
-const memory = require('./core/memory');
-const { runWorker, statusText } = require('./core/workers');
 
 const VERSION = require('../package.json').version;
+const DEFS = path.join(__dirname, 'tool-defs.js');
+const CALL = path.join(__dirname, 'tool-call.js');
 
-const TOOLS = [
-  {
-    name: 'relay_run',
-    description:
-      'Hand a substantial, self-contained job to a Relay worker account (a separate Claude login running the official Claude Code), so it uses that account\'s usage instead of this window\'s. ' +
-      'The worker CANNOT see this conversation: put everything it needs in `task` and `context`. ' +
-      'Use a stable `thread` name per line of work: calling again with the same thread continues it and the worker remembers everything. ' +
-      'Returns the worker\'s final report. If it returns NO_WORKER_AVAILABLE or BUSY, tell the user and then decide whether to do the work yourself.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        task: { type: 'string', description: 'Complete instructions: the goal, what "done" looks like, how to verify. Self-contained.' },
-        cwd: { type: 'string', description: 'Absolute path of the project folder the worker should work in (normally this session\'s working directory).' },
-        context: { type: 'string', description: 'Background from this conversation the worker needs: the user\'s goal in their words, decisions already made, constraints, relevant files, what has been tried.' },
-        thread: { type: 'string', description: 'Short kebab-case name for this line of work, e.g. "auth-refactor". Reuse it to continue; omit for a one-off.' },
-        read_only: { type: 'boolean', description: 'True for investigation or review that must not change any file.' },
-        account: { type: 'string', description: 'Optional: run on this worker account (its e-mail or name as relay_status lists it), e.g. to run two jobs on two different accounts at the same time. Omit to let Relay pick the least busy worker.' },
-        model: { type: 'string', description: 'Optional model for the worker, e.g. "haiku", "sonnet", "opus" or a full id such as "claude-haiku-5-5". Omit to use the worker account\'s default. Use a smaller model for mechanical work to save usage.' },
-        title: { type: 'string', description: 'A 3-8 word label saying what this job is, shown in Relay\'s panel, e.g. "Build promo website". Max 60 characters.' },
-      },
-      required: ['task', 'cwd'],
-    },
-  },
-  {
-    name: 'relay_status',
-    description: 'Show Relay\'s accounts (which one is this window\'s leader, which are workers, how much of their 5-hour and weekly usage is used, who is limited) and, if `cwd` is given, the worker threads in that project.',
-    inputSchema: { type: 'object', properties: { cwd: { type: 'string', description: 'Optional absolute project folder.' } } },
-  },
-  {
-    name: 'relay_ledger',
-    description: 'Read the project ledger: everything Relay workers have done in a project folder (summaries, files touched, open issues). Use it to re-orient after your own context was compacted or in a new conversation.',
-    inputSchema: { type: 'object', properties: { cwd: { type: 'string', description: 'Absolute project folder.' } }, required: ['cwd'] },
-  },
-];
+// The current tool definitions, read again whenever the file changes.
+let defsSeen = 0;
+function tools() {
+  try { defsSeen = fs.statSync(DEFS).mtimeMs; } catch { /* keep the last time */ }
+  delete require.cache[require.resolve(DEFS)];
+  return require(DEFS).TOOLS;
+}
+let listed = false;
+function toolsChanged() {
+  try { return listed && fs.statSync(DEFS).mtimeMs !== defsSeen; } catch { return false; }
+}
 
 const log = (...a) => process.stderr.write(`[relay-mcp] ${a.join(' ')}\n`);
 const send = (msg) => process.stdout.write(`${JSON.stringify(msg)}\n`);
@@ -68,33 +48,36 @@ function reportIdentity() {
 }
 
 // Jobs this window is running, by JSON-RPC request id: a cancel or the window closing stops exactly these.
-const inflight = new Map(); // id -> { controller, done }
+const inflight = new Map(); // id -> { child, done }
 
-async function callTool(name, args, progressToken, signal) {
+// One tool call, in its own process; resolves { text, isError }.
+function callTool(name, args, progressToken, id) {
   reportIdentity();
-  if (name === 'relay_status') return { text: statusText(args.cwd) };
-  if (name === 'relay_ledger') {
-    if (!args.cwd) return { text: 'cwd is required.', isError: true };
-    const text = memory.ledgerText(args.cwd, { maxChars: 12000 });
-    const threads = Object.keys(memory.listThreads(args.cwd));
-    return { text: text ? `Threads: ${threads.join(', ') || '(none)'}\n\n${text}` : 'The ledger for this project is empty: no Relay worker has run here yet.' };
-  }
-  if (name === 'relay_run') {
-    let last = 0;
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(process.execPath, [CALL], { env: process.env, stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true });
+    } catch (e) {
+      return resolve({ text: `Relay error: ${e.message}`, isError: true });
+    }
+    if (id !== undefined && inflight.has(id)) inflight.get(id).child = child;
+    let result = null;
     let n = 0;
-    const out = await runWorker({
-      task: args.task, cwd: args.cwd, context: args.context, thread: args.thread ? String(args.thread).trim() : '', readOnly: !!args.read_only, model: args.model ? String(args.model).trim() : '',
-      title: args.title ? String(args.title) : '', account: args.account ? String(args.account).trim() : '',
-      signal,
-      onProgress: (line) => {
-        if (progressToken == null || Date.now() - last < 1500) return;
+    let last = 0;
+    readline.createInterface({ input: child.stdout }).on('line', (line) => {
+      let m;
+      try { m = JSON.parse(line); } catch { return; }
+      if (m.result) result = m.result;
+      else if (m.progress && progressToken != null && Date.now() - last >= 1500) {
         last = Date.now();
-        send({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken, progress: ++n, message: line } });
-      },
+        send({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken, progress: ++n, message: m.progress } });
+      }
     });
-    return { text: out.text, isError: !out.ok && !['no_workers', 'workers_limited', 'busy', 'cancelled'].includes(out.code) };
-  }
-  return { text: `Unknown tool: ${name}`, isError: true };
+    child.on('error', (e) => resolve({ text: `Relay error: ${e.message}`, isError: true }));
+    child.on('close', (code) => resolve(result || { text: `Relay error: the tool process ended (code ${code}) without an answer.`, isError: true }));
+    child.stdin.on('error', () => {});
+    child.stdin.end(JSON.stringify({ name, args }));
+  });
 }
 
 async function handle(msg) {
@@ -105,18 +88,20 @@ async function handle(msg) {
   switch (method) {
     case 'initialize':
       reportIdentity();
-      return reply({ protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'relay', version: VERSION } });
+      return reply({ protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: { listChanged: true } }, serverInfo: { name: 'relay', version: VERSION } });
     case 'ping':
       return reply({});
     case 'tools/list':
-      return reply({ tools: TOOLS });
+      listed = true;
+      return reply({ tools: tools() });
     case 'tools/call': {
-      const controller = new AbortController();
-      const job = { controller, done: null };
+      // Relay was updated since the window read the tools: tell it to read them again (this call runs the new code).
+      if (toolsChanged()) send({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
+      const job = { child: null, done: null };
       if (id !== undefined) inflight.set(id, job);
       const work = (async () => {
         try {
-          const r = await callTool(params.name, params.arguments || {}, params._meta?.progressToken, controller.signal);
+          const r = await callTool(params.name, params.arguments || {}, params._meta?.progressToken, id);
           return reply({ content: [{ type: 'text', text: r.text }], isError: !!r.isError });
         } catch (e) {
           log('tool error:', e.stack || e.message);
@@ -129,10 +114,10 @@ async function handle(msg) {
       return work;
     }
     case 'notifications/cancelled': {
-      // The window stopped this call: stop its worker (the whole process tree), free its folder and run file.
-      // runWorker answers the call itself with a short "Cancelled." once everything is cleaned up.
+      // The window stopped this call: its process stops its worker (the whole process tree), frees its folder and
+      // run file, and answers the call itself with a short "Cancelled." once everything is cleaned up.
       const job = inflight.get(params.requestId);
-      if (job) { log('cancelled request', params.requestId, params.reason || ''); job.controller.abort(); }
+      if (job) { log('cancelled request', params.requestId, params.reason || ''); job.child?.kill('SIGTERM'); }
       return undefined;
     }
     default:
@@ -156,10 +141,10 @@ async function shutdown(code) {
   if (closing) return;
   closing = true;
   const jobs = [...inflight.values()];
-  for (const j of jobs) j.controller.abort();
+  for (const j of jobs) j.child?.kill('SIGTERM'); // each stops its worker and frees its folder, then exits
   const settle = Promise.allSettled(jobs.map((j) => j.done));
   await Promise.race([settle, new Promise((r) => setTimeout(r, 8000).unref())]);
-  memory.releaseAll(); // whatever is still held (a job that did not finish cleaning up in time)
+  for (const j of jobs) { try { j.child?.kill('SIGKILL'); } catch { /* gone */ } } // still not done: no leftovers
   process.exit(code);
 }
 rl.on('close', () => shutdown(0));
@@ -170,5 +155,5 @@ process.on('uncaughtException', (e) => log('uncaught exception (kept running):',
 process.on('unhandledRejection', (e) => log('unhandled rejection (kept running):', (e && e.stack) || e));
 process.on('SIGTERM', () => shutdown(143));
 process.on('SIGINT', () => shutdown(130));
-// Last resort when the process ends some other way: abort what is left (kills worker trees) and free its locks.
-process.on('exit', () => { for (const j of inflight.values()) j.controller.abort(); memory.releaseAll(); });
+// Last resort when the process ends some other way: tell what is left to stop (each frees its own locks).
+process.on('exit', () => { for (const j of inflight.values()) { try { j.child?.kill('SIGTERM'); } catch { /* gone */ } } });

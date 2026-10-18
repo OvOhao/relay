@@ -30,26 +30,30 @@ function pause(ms, signal) {
   });
 }
 
-// Waits its turn for the folder: first come, first served across every window (see memory.joinQueue). Resolves
-// { lock } once this job holds the folder, { cancelled } when aborted, { busy: holder } after the time limit.
-async function waitForFolder(cwd, thread, { signal, onWait }) {
-  const ticket = memory.joinQueue(cwd, { thread });
+// Waits its turn for the part of the project it changes (its scopes; the whole folder when it names none), first come,
+// first served among the jobs it clashes with, across every window. A job that clashes with nobody ahead of it starts
+// at once: jobs on different parts of one project run side by side on different workers. Resolves { lock } once this
+// job holds its scopes, { cancelled } when aborted, { busy: holder } after the time limit.
+async function waitForFolder(cwd, thread, { signal, onWait, scopes = null }) {
+  const me = { scopes };
+  const ticket = memory.joinQueue(cwd, { thread, scopes });
   const deadline = Date.now() + queueWaitSec() * 1000;
   try {
     for (;;) {
       if (signal && signal.aborted) return { cancelled: true };
       const line = memory.queue(cwd);
       const mine = line.findIndex((t) => t.token === ticket.token);
+      const ahead = (mine < 0 ? [] : line.slice(0, mine)).filter((t) => memory.clash(cwd, t, me));
       let holder = null;
-      if (mine <= 0) { // first in line (or our ticket was lost: then just try, rather than wait forever)
-        const lock = memory.acquireLock(cwd, { thread });
+      if (!ahead.length) { // nobody it clashes with is ahead of it (or its ticket was lost: then just try)
+        const lock = memory.acquireScopes(cwd, scopes, { thread });
         if (lock.release) return { lock };
         holder = lock.busy;
       } else {
-        holder = memory.lockHolder(cwd) || line[0];
+        holder = memory.liveScopeLocks(cwd).find((t) => memory.clash(cwd, t, me)) || ahead[0];
       }
       if (Date.now() >= deadline) return { busy: holder || { thread: '?' } };
-      onWait(holder || {}, Math.max(mine, 0));
+      onWait(holder || {}, ahead.length);
       await pause(QUEUE_POLL_MS + Math.random() * 250, signal);
     }
   } finally {
@@ -78,12 +82,16 @@ function gitState(cwd) {
   });
 }
 
-function buildPrompt({ task, context, ledger, resumed }) {
+function buildPrompt({ task, context, ledger, resumed, scopes = null }) {
+  const limit = scopes && scopes.length
+    ? `Only create or change files inside: ${scopes.join(', ')} (relative to the current folder). Other workers may be changing other parts of this project at the same time.`
+    : '';
   if (resumed) {
     return [
       'Follow-up from the dispatcher on this same thread (you keep all your earlier context):',
       '',
       task,
+      limit ? `\n${limit}` : '',
       context ? `\nExtra background:\n${context}` : '',
       ledger ? `\nWhile you were away, other workers did this in the same project:\n${ledger}` : '',
       '\nFinish with a short report: what you did, files changed, how you verified, open issues.',
@@ -103,13 +111,29 @@ function buildPrompt({ task, context, ledger, resumed }) {
     ledger || '(nothing yet)',
     '',
     '## How to work',
+    ...(limit ? [`- ${limit}`] : []),
     '- Do the whole task. Do not stop to ask questions unless you are truly blocked; state your assumptions instead.',
     '- Do not delegate further. If a command or edit is refused by permissions, say exactly what was refused.',
     '- Finish with a short report the dispatcher will read: what you did, files changed, how you verified, open issues or follow-ups.',
   ].join('\n');
 }
 
-async function runWorker({ task, context = '', cwd, thread = '', readOnly = false, model = '', title = '', account = '', onProgress = () => {}, signal = null }) {
+// The folders a job will change, as absolute paths inside its project folder; null = the whole folder.
+function cleanScopes(cwd, scope) {
+  const list = (Array.isArray(scope) ? scope : scope == null || scope === '' ? [] : [scope]).map((s) => String(s).trim()).filter(Boolean);
+  if (!list.length) return { scopes: null };
+  const root = path.resolve(cwd);
+  const out = [];
+  for (const s of list) {
+    const abs = path.resolve(root, s);
+    if (abs !== root && !abs.startsWith(root + path.sep)) return { error: `scope must be inside cwd (got: ${s}).` };
+    if (abs === root) return { scopes: null }; // the whole folder after all
+    out.push(abs);
+  }
+  return { scopes: out };
+}
+
+async function runWorker({ task, context = '', cwd, thread = '', readOnly = false, model = '', title = '', account = '', scope = null, onProgress = () => {}, signal = null }) {
   if (!task || !String(task).trim()) return { ok: false, code: 'bad_request', text: 'relay_run needs a task.' };
   const cleaned = store.cleanModel(model);
   if (cleaned === null) return { ok: false, code: 'bad_request', text: `model must be a model alias or id such as "haiku" or "claude-haiku-5-5" (got: ${String(model).slice(0, 40)}).` };
@@ -121,20 +145,25 @@ async function runWorker({ task, context = '', cwd, thread = '', readOnly = fals
     return { ok: false, code: 'no_workers', text: 'NO_WORKER_AVAILABLE: Relay has no worker accounts signed in (the leader account is this window). Do the work yourself, or ask the user to add another account in Relay.' };
   }
 
+  const sc = cleanScopes(cwd, scope);
+  if (sc.error) return { ok: false, code: 'bad_request', text: sc.error };
+  const scopes = sc.scopes;
+
   const runId = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const given = clip(String(title || '').replace(/\s+/g, ' ').trim(), 60);
   const ledgerTitle = given || clip(task, 120);
-  const run = { project: path.basename(cwd) || cwd, cwd, thread: thread || '', title: given || deriveTitle(task), kind: 'worker', status: 'running', account: null, lastLine: '', startedAt: Date.now() };
+  const run = { project: path.basename(cwd) || cwd, cwd, scopes: scopes ? scopes.map((s) => path.relative(cwd, s)) : null, thread: thread || '', title: given || deriveTitle(task), kind: 'worker', status: 'running', account: null, lastLine: '', startedAt: Date.now() };
   const tick = () => memory.writeRun(runId, { ...run, updatedAt: Date.now() });
 
-  // Another job is working in this folder: wait for it (in arrival order) instead of refusing. The waiting
-  // shows in the panel and, every few seconds, as progress to the dispatcher, which also keeps its call alive.
+  // Another job is changing the same part of this project: wait for it (in arrival order) instead of refusing. The
+  // waiting shows in the panel and, every few seconds, as progress to the dispatcher, which also keeps its call alive.
+  // A read-only job changes nothing, so it never waits and never makes anyone else wait.
   let reported = 0;
-  const got = await waitForFolder(cwd, thread || '(one-off)', {
-    signal,
+  const got = readOnly ? { lock: { release: () => {} } } : await waitForFolder(cwd, thread || '(one-off)', {
+    signal, scopes,
     onWait: (holder, ahead) => {
       run.status = 'waiting';
-      run.lastLine = `Waiting for another worker in this folder (thread ${holder.thread || '?'})…${ahead > 1 ? ` ${ahead} jobs ahead.` : ''}`;
+      run.lastLine = `Waiting for another worker changing the same files (thread ${holder.thread || '?'})…${ahead > 1 ? ` ${ahead} jobs ahead.` : ''}`;
       tick();
       if (Date.now() - reported >= WAIT_REPORT_MS) { reported = Date.now(); onProgress(run.lastLine); }
     },
@@ -143,7 +172,7 @@ async function runWorker({ task, context = '', cwd, thread = '', readOnly = fals
     memory.removeRun(runId);
     if (got.cancelled) return { ok: false, code: 'cancelled', text: 'Cancelled while waiting for the folder; nothing was started.' };
     const sec = queueWaitSec();
-    return { ok: false, code: 'busy', text: `BUSY: another Relay worker (thread "${got.busy.thread || '?'}") is still working in this folder after waiting ${sec >= 60 ? `${Math.round(sec / 60)} min` : `${sec} s`}. Wait for it, or work on something else.` };
+    return { ok: false, code: 'busy', text: `BUSY: another Relay worker (thread "${got.busy.thread || '?'}") is still changing the same files after waiting ${sec >= 60 ? `${Math.round(sec / 60)} min` : `${sec} s`}. Wait for it, work on something else, or give jobs on different parts of the project their own \`scope\`.` };
   }
   const lock = got.lock;
   run.status = 'running';
@@ -171,7 +200,7 @@ async function runWorker({ task, context = '', cwd, thread = '', readOnly = fals
     if (existing?.sessionId) { engine.sessionId = existing.sessionId; engine.account = existing.account || null; }
 
     const prompt = buildPrompt({
-      task: String(task), context: String(context || ''), resumed: !!existing?.sessionId,
+      task: String(task), context: String(context || ''), resumed: !!existing?.sessionId, scopes: run.scopes,
       ledger: memory.ledgerText(cwd, existing ? { sinceMs: existing.updatedAt, excludeThread: thread } : {}),
     });
 
@@ -279,4 +308,4 @@ function statusText(cwd) {
   return lines.join('\n');
 }
 
-module.exports = { runWorker, statusText, buildPrompt, deriveTitle };
+module.exports = { runWorker, statusText, buildPrompt, deriveTitle, cleanScopes };
