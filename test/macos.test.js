@@ -436,3 +436,26 @@ test('by default several jobs run in one folder at once, one per free worker; wi
     delete process.env.RELAY_BUSY_POLL_MS;
   }
 });
+
+test('a reading cut short on a busy computer says so, keeps the numbers, and does not count against the login', async () => {
+  const root = sandbox();
+  const store = require(`${SRC}/core/store`);
+  const usage = require(`${SRC}/core/usage`);
+  store.save([store.newAccount('w', path.join(root, 'home', 'accounts', 'w'), 'w@x.com')]);
+  const ok = await usage.refresh('w');
+  process.env.FAKE_USAGE_HANG = '1';
+  process.env.RELAY_USAGE_TIMEOUT_MS = '400';
+  try {
+    for (let i = 0; i < 3; i++) {
+      const r = await usage.refresh('w');
+      assert.match(r.error, /timed out after 0 s: the computer is very busy/);
+      assert.equal(r.okAt, ok.okAt);
+      assert.equal(r.data.session.pct, 12);
+    }
+    assert.equal(store.get('w').needsLogin, false, 'three timeouts are not a lost login');
+    assert.ok(!store.get('w').authFails);
+  } finally {
+    delete process.env.FAKE_USAGE_HANG;
+    delete process.env.RELAY_USAGE_TIMEOUT_MS;
+  }
+});

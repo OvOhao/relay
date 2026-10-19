@@ -31,6 +31,7 @@ if (args[0] === 'auth') {
   return;
 }
 
+if (args.includes('/usage') && process.env.FAKE_USAGE_HANG) { setInterval(() => {}, 1000); return; } // a reading that never ends
 if (args.includes('/usage') && process.env.FAKE_LOGGED_OUT) { // a folder without a login: a cost summary, no numbers
   console.log(JSON.stringify({ result: 'Total cost:            $0.0000\nTotal duration (API):  0s\nUsage:                 ' }));
   process.exit(0);
