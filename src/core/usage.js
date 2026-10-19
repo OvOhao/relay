@@ -83,23 +83,29 @@ function parseUsage(text, nowMs = Date.now()) {
   return { session, week, others: rows.filter((r) => r !== session && r !== week) };
 }
 
-function fetchUsage(acct, timeoutMs = 60000) {
+// A reading starts a whole Claude Code; on a computer that is very busy (several workers, a build, a VM) that can take
+// minutes. It gets 3 minutes, and a reading cut short says so instead of "unreadable output". --strict-mcp-config:
+// /usage needs no MCP servers, so none are started (fewer processes on a busy machine).
+const USAGE_TIMEOUT_MS = () => Number(process.env.RELAY_USAGE_TIMEOUT_MS || 180000);
+function fetchUsage(acct, timeoutMs = USAGE_TIMEOUT_MS()) {
   return new Promise((resolve) => {
     let out = '';
     let child;
+    let timedOut = false;
     try {
-      child = spawnClaude(['-p', '/usage', '--output-format', 'json', '--no-session-persistence'], {
+      child = spawnClaude(['-p', '/usage', '--output-format', 'json', '--no-session-persistence', '--strict-mcp-config'], {
         // RELAY_TAKEOVER marks this as Relay's own run, so the SessionStart hook does not report it as a user session
         cwd: os.tmpdir(), env: accountEnv(acct, { RELAY_TAKEOVER: 'usage' }), stdio: ['ignore', 'pipe', 'ignore'],
       });
     } catch (e) {
       return resolve({ error: e.message });
     }
-    const timer = setTimeout(() => child.kill(), timeoutMs);
+    const timer = setTimeout(() => { timedOut = true; child.kill(); }, timeoutMs);
     child.stdout.on('data', (d) => (out += d));
     child.on('error', (e) => { clearTimeout(timer); resolve({ error: e.message }); });
     child.on('close', () => {
       clearTimeout(timer);
+      if (timedOut) return resolve({ error: `timed out after ${Math.round(timeoutMs / 1000)} s: the computer is very busy`, timedOut: true });
       try {
         const text = String(JSON.parse(out).result || '');
         const data = parseUsage(text);
@@ -142,6 +148,16 @@ function noteSignedOut(acct, cached) {
 const inflight = new Map();
 const isBusy = (name) => inflight.has(name);
 
+// At most two readings at once: five Claude Codes starting together slow each other (and the workers) down.
+const MAX_READING = 2;
+let reading = 0;
+const waiters = [];
+async function slot(fn) {
+  if (reading >= MAX_READING) await new Promise((r) => waiters.push(r));
+  reading++;
+  try { return await fn(); } finally { reading--; waiters.shift()?.(); }
+}
+
 function refresh(name, opts = {}) {
   if (inflight.has(name)) return inflight.get(name);
   const p = readOne(name, opts).finally(() => inflight.delete(name));
@@ -152,7 +168,7 @@ function refresh(name, opts = {}) {
 async function readOne(name, { recheck = false } = {}) {
   const acct = store.get(name);
   if (!acct || (acct.needsLogin && !recheck)) return null;
-  const res = await fetchUsage(acct);
+  const res = await slot(() => fetchUsage(acct));
   if (res.data) {
     applyTruth(acct, res.data);
     if (acct.needsLogin || acct.authFails) store.update(name, { needsLogin: false, authFails: 0 });
@@ -163,7 +179,7 @@ async function readOne(name, { recheck = false } = {}) {
   // can be "no" for one moment and "yes" the next (the Keychain may refuse a read, e.g. while it asks you to allow
   // access), so it counts as one strike like any other auth failure; "sign in needed" takes AUTH_STRIKES in a row.
   let signedOut = false;
-  if (!res.authFailed) {
+  if (!res.authFailed && !res.timedOut) { // a reading cut short says nothing about the login
     const info = await authStatus(acct);
     signedOut = info.loggedIn === false && !info.error;
   }

@@ -5,6 +5,7 @@
 // user's folders, so a random web page must not be able to drive it.
 
 const http = require('http');
+const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -482,10 +483,12 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
         } catch { /* the next round tries again */ }
       };
       setTimeout(() => settle().then(() => refreshUsage()), 1500).unref();
-      // Live while someone is looking (panel visible): re-read anything older than 25 s every 30 s.
-      // Otherwise stay quiet: every account is only re-read when its last reading is 4 minutes old.
+      // Live while someone is looking (panel visible): re-read anything older than a minute. Otherwise stay quiet:
+      // every account is only re-read when its last reading is 4 minutes old. On a computer that is very busy (load
+      // well above its number of cores) readings are spaced out further: each one starts a whole Claude Code.
       const watching = () => (shell.isPanelVisible ? !!shell.isPanelVisible() : clients.size > 0);
-      setInterval(() => refreshUsage({ maxAgeMs: watching() ? 25 * 1000 : 4 * 60 * 1000 }), 30 * 1000).unref();
+      const strained = () => os.loadavg()[0] > 2 * os.cpus().length;
+      setInterval(() => refreshUsage({ maxAgeMs: (watching() ? 60 : 4 * 60) * 1000 * (strained() ? 3 : 1) }), 30 * 1000).unref();
       setInterval(settle, 30 * 60 * 1000).unref();
       setInterval(syncLeaderFromDesktop, 10 * 1000).unref();
       // Keep each worker account's settings (your settings + the commands workers may run) current.
