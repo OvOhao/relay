@@ -22,6 +22,7 @@ async function callTool(name, args, { onProgress = () => {}, signal = null } = {
     const out = await runWorker({
       task: args.task, cwd: args.cwd, context: args.context, thread: args.thread ? String(args.thread).trim() : '', readOnly: !!args.read_only, model: args.model ? String(args.model).trim() : '',
       title: args.title ? String(args.title) : '', account: args.account ? String(args.account).trim() : '', scope: args.scope ?? null,
+      preset: args.preset ? String(args.preset).trim() : '',
       signal,
       onProgress,
     });

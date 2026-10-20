@@ -107,7 +107,7 @@ Claude calls the tools for you:
 
 | Tool | What it does |
 |---|---|
-| `relay_run` | Hands a job to a worker: `task`, `context`, `cwd`, an optional `thread` to continue, `read_only`, `account`, `model`, `title`, `scope` (the folders it changes). Returns the worker's report. Call it several times in one turn to run jobs in parallel. |
+| `relay_run` | Hands a job to a worker: `task`, `context`, `cwd`, an optional `thread` to continue, `read_only`, `account`, `model`, `title`, `scope` (the folders it changes), `preset` (a task preset, e.g. `security`). Returns the worker's report. Call it several times in one turn to run jobs in parallel. |
 | `relay_status` | Who is the leader, which workers are ready, how much usage each has left; the threads in a project. |
 | `relay_ledger` | Everything workers did in a project, to get back on track after a long break or a compacted context. |
 
@@ -121,6 +121,7 @@ Workers run in the background, so nobody is there to approve a command. **Settin
 - **Commands workers may run.** Claude Code permission rules such as `Bash(npm test)`.
 - **Commands workers may never run.** Refused however the command is written: a full path, `./`, or inside `cd … && …`. Use it for what only you or your own window should do, such as `Bash(git push *)`.
 - **Jobs.** *One job at a time per folder* (off by default) and *Jobs per worker at once* (1 by default).
+- **Task presets.** Background a worker gets in its system prompt for one kind of work, so it reads a legitimate task correctly. The built-in *Security research* preset is applied when the dispatcher asks for it (`preset: "security"`) or when a job mentions one of its keywords (vulnerability, exploit, prompt injection, red team, …). Write only what is true about your work: a preset gives context, it lifts no limit.
 
 Relay writes these rules into each worker account's own `settings.json` (your settings plus the rules) and keeps them current. Your own `~/.claude/settings.json` is never changed.
 
@@ -170,7 +171,7 @@ A real plan-limit takeover (tested with simulated limit events and a fake `claud
 ## Development
 
 ```bash
-npm test                            # 84 tests against a fake claude: no usage spent
+npm test                            # 87 tests against a fake claude: no usage spent
 node src/dev.js --demo              # the panel in a browser
 npx electron scripts/make-icon.js   # icons from build/logo.svg and build/mark.svg
 npx electron scripts/screenshots.js # the screenshots above, from the demo

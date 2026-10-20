@@ -63,6 +63,10 @@ const T = {
     never_none: 'None yet.', never_add: 'Add a rule…', never_add_title: 'Never allow a command', never_hint: 'For example: Bash(git push *) · Bash(bin/tool freeze *) · Bash(ssh server *rm *)',
     set_jobs: 'Jobs', jobs_folder: 'One job at a time per folder', jobs_folder_d: 'Off: several workers work in the same folder at once; only jobs that name overlapping folders (scope) wait for each other.',
     jobs_per: 'Jobs per worker at once', jobs_per_d: 'With every worker busy, a new job waits for the first one to come free.', jobs_any: 'No limit',
+    set_presets: 'Task presets', presets_d: 'Background a worker gets in its system prompt for a kind of work: picked by the dispatcher, or applied when a job matches the keywords. Write only what is true about your work; a preset gives context, it lifts no limit.',
+    preset_auto: 'Automatic', preset_manual: 'When asked', preset_edit: 'Edit', preset_add: 'Add a preset…', preset_title: 'Task preset',
+    preset_id: 'Name used by the dispatcher (id)', preset_name: 'Display name', preset_text: 'Background for the worker', preset_kw: 'Keywords (comma separated)',
+    preset_auto_label: 'Apply automatically when a job contains one of the keywords', preset_delete: 'Delete preset',
     set_startup: 'Start with Windows', set_startup_d: 'Relay waits quietly in the tray.',
     set_conn: 'Connection', connected: 'Connected to Claude Code', not_connected: 'Not connected', disconnect: 'Disconnect',
     about: 'About', about_text: 'Relay is an independent tool, not affiliated with Anthropic. Includes code by ZhengGao-30 (MIT).', replay_intro: 'Replay intro',
@@ -141,6 +145,10 @@ const T = {
     never_none: '还没有。', never_add: '添加规则…', never_add_title: '禁止一条命令', never_hint: '例如：Bash(git push *) · Bash(bin/tool freeze *) · Bash(ssh 服务器 *rm *)',
     set_jobs: '任务', jobs_folder: '同一文件夹一次只跑一个任务', jobs_folder_d: '关闭时，多个 worker 可以同时在同一个文件夹里工作；只有声明的改动范围（scope）重叠的任务才会互相等待。',
     jobs_per: '每个 worker 同时接几个任务', jobs_per_d: '所有 worker 都在忙时，新任务会等第一个空出来的 worker。', jobs_any: '不限',
+    set_presets: '任务预设', presets_d: '针对某类工作，写进 worker 系统提示里的背景说明：由 leader 指定，或者任务内容命中关键词时自动套用。只写关于你工作的真实情况；预设提供的是背景，不会解除任何限制。',
+    preset_auto: '自动', preset_manual: '指定时', preset_edit: '编辑', preset_add: '添加预设…', preset_title: '任务预设',
+    preset_id: 'leader 使用的名称（id）', preset_name: '显示名称', preset_text: '给 worker 的背景说明', preset_kw: '关键词（用逗号分隔）',
+    preset_auto_label: '任务里出现任一关键词时自动套用', preset_delete: '删除预设',
     set_startup: '开机时启动', set_startup_d: 'Relay 会安静地待在托盘里。',
     set_conn: '连接', connected: '已连接 Claude Code', not_connected: '未连接', disconnect: '断开',
     about: '关于', about_text: 'Relay 是独立工具，与 Anthropic 无关联。包含 ZhengGao-30 的代码（MIT 许可）。', replay_intro: '重播开场动画',
@@ -745,6 +753,13 @@ function settingsView() {
             const cur = Number.isInteger(S.settings.jobsPerWorker) ? S.settings.jobsPerWorker : 1;
             return h('button', { class: 'seg-btn', type: 'button', role: 'radio', 'aria-checked': String(cur === n), tabindex: cur === n ? '0' : '-1', 'data-act': 'jobs-per', 'data-n': String(n) }, n ? String(n) : t('jobs_any'));
           }))))),
+      group('presets', t('set_presets'), h('div', { class: 'card list rules' },
+        h('p', { class: 'rules-d' }, t('presets_d')),
+        (Array.isArray(S.settings.presets) ? S.settings.presets : []).map((p, i) => h('div', { class: 'rule-row', 'data-key': `preset:${p.id}` },
+          h('span', { class: 'rule' }, h('b', {}, p.name), ' ', h('code', {}, p.id)),
+          h('span', { class: 'badge' }, t(p.auto ? 'preset_auto' : 'preset_manual')),
+          h('button', { class: 'btn sm', type: 'button', 'data-act': 'preset-edit', 'data-i': String(i) }, t('preset_edit')))),
+        h('div', { class: 'rules-add' }, h('button', { class: 'btn sm', type: 'button', 'data-act': 'preset-edit', 'data-i': '-1' }, icon('plus', 'ic sm'), t('preset_add'))))),
       group('tools', t('set_tools'), ruleList('allowedTools', t('tools_d'), t('tools_none'), t('tools_add'))),
       group('never', t('set_never'), ruleList('deniedTools', t('never_d'), t('never_none'), t('never_add'))),
       S.canAutoStart ? group('startup', t('set_startup'), h('div', { class: 'card row' },
@@ -949,6 +964,39 @@ function openModelDialog(a) {
     value: a.model || '', okLabel: t('save'), submit: (model) => api('/api/accounts/model', { name: a.name, model }),
   });
 }
+// Edit (i >= 0) or add (i = -1) a task preset; Delete removes it. Saved through the settings API, which checks it.
+function presetSheet(i) {
+  const list = Array.isArray(S.settings.presets) ? S.settings.presets : [];
+  const cur = i >= 0 ? list[i] : { id: '', name: '', text: '', keywords: [], auto: true };
+  sheet((d) => {
+    const field = (label, el) => { const id = `pf${++sheetId}`; el.id = id; return [h('label', { class: 'field-label', for: id }, label), el]; };
+    const idIn = h('input', { type: 'text', value: cur.id, placeholder: 'security', autocomplete: 'off', spellcheck: 'false' });
+    const nameIn = h('input', { type: 'text', value: cur.name, placeholder: 'Security research', autocomplete: 'off' });
+    const textIn = h('textarea', { rows: '9', spellcheck: 'false' });
+    textIn.value = cur.text;
+    const kwIn = h('input', { type: 'text', value: (cur.keywords || []).join(', '), autocomplete: 'off', spellcheck: 'false' });
+    const auto = h('input', { type: 'checkbox' });
+    auto.checked = cur.auto !== false;
+    const save = guard(async () => {
+      const next = { id: idIn.value, name: nameIn.value, text: textIn.value, keywords: kwIn.value.split(','), auto: auto.checked };
+      const all = i >= 0 ? list.map((p, k) => (k === i ? next : p)) : [...list, next];
+      S.settings = await api('/api/settings', { presets: all });
+      d.close();
+      render();
+    });
+    const del = guard(async () => {
+      S.settings = await api('/api/settings', { presets: list.filter((_, k) => k !== i) });
+      d.close();
+      render();
+    });
+    d.classList.add('wide');
+    d.append(h('h2', {}, t('preset_title')),
+      ...field(t('preset_id'), idIn), ...field(t('preset_name'), nameIn), ...field(t('preset_text'), textIn), ...field(t('preset_kw'), kwIn),
+      h('label', { class: 'check' }, auto, h('span', {}, t('preset_auto_label'))),
+      actions(i >= 0 ? btn(t('preset_delete'), del, 'danger') : null, btn(t('cancel'), () => d.close()), btn(t('save'), save, 'primary')));
+  });
+}
+
 // Taking Relay out of Claude Code keeps the saved sign-ins unless the box is ticked: they are the one thing
 // that costs a browser login each to get back.
 function openRemoveAll() {
@@ -1047,6 +1095,7 @@ const ACT = {
     S.settings = await api('/api/settings', { [key]: rules });
     render();
   }),
+  'preset-edit': (el) => presetSheet(Number(el.dataset.i)),
   'folder-lock': guard(async () => { S.settings = await api('/api/settings', { folderLock: S.settings.folderLock !== true }); render(); }),
   'jobs-per': guard(async (el) => { S.settings = await api('/api/settings', { jobsPerWorker: Number(el.dataset.n) }); render(); }),
   pin: guard(async () => { S.settings = await api('/api/settings', { panelPinned: !S.settings.panelPinned }); render(); }),

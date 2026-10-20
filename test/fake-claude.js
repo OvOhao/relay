@@ -93,7 +93,7 @@ process.stdin.on('end', async () => {
   const resume = ri >= 0 ? args[ri + 1] : null;
   const sid = resume || `sess-${Math.random().toString(36).slice(2, 8)}`;
   const mi = args.indexOf('--model');
-  fs.appendFileSync(path.join(state, 'invocations.jsonl'), `${JSON.stringify({ account, behaviour, resume, prompt, model: mi >= 0 ? args[mi + 1] : null, allowedTools: allowedArgs(), extra: extraArgsSeen() })}\n`);
+  fs.appendFileSync(path.join(state, 'invocations.jsonl'), `${JSON.stringify({ account, behaviour, resume, prompt, model: mi >= 0 ? args[mi + 1] : null, allowedTools: allowedArgs(), extra: extraArgsSeen(), appendSystem: args.includes('--append-system-prompt') ? args[args.indexOf('--append-system-prompt') + 1] : null })}\n`);
 
   const out = (o) => console.log(JSON.stringify({ session_id: sid, ...o }));
   out({ type: 'system', subtype: 'init', model: 'fake-model' });
