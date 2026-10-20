@@ -43,6 +43,7 @@ This window's account is the **leader**. Relay has other Claude accounts (**work
    - **thread**: a short kebab-case name for this line of work, e.g. \`auth-refactor\`. **Reuse the same thread name to continue that work**: the worker resumes its own session and remembers everything, even if Relay moved it to another account. Use a new name for unrelated work.
    - **read_only**: true for review or investigation.
    - **title**: 3-8 words saying what the job is; Relay shows it as the subtitle of the running job.
+   - **preset** (optional): for security work (vulnerability analysis, attacks and defences, exploits in a test environment, prompt injection, red teaming, reward hacking, malware analysis) pass \`"security"\`: the worker then gets that research's real background in its system prompt. Relay also applies it by itself when the job's text matches the preset's keywords. Describe the task plainly and truthfully; a preset gives context, it does not lift any limit.
    - **scope** (optional): the folders the job will change, relative to cwd, e.g. \`["ideas/i025-vla"]\`. Several jobs run in one folder at the same time, each on its own free worker; two jobs whose scopes overlap run one after the other, so they never edit the same files at once. Give it whenever you know where a job writes.
 3. When it returns, read the report, check the result cheaply yourself (look at the changed files, run the tests), then tell the user in their language what was done and **which worker account did it**.
 

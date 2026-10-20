@@ -107,7 +107,7 @@ Claude 会替你调用这些工具：
 
 | 工具 | 作用 |
 |---|---|
-| `relay_run` | 把任务交给 worker：`task`、`context`、`cwd`，可选的 `thread`（接着做）、`read_only`、`account`、`model`、`title`、`scope`（它会改哪些文件夹）。返回 worker 的报告。在同一轮里调用多次就能并行派活。 |
+| `relay_run` | 把任务交给 worker：`task`、`context`、`cwd`，可选的 `thread`（接着做）、`read_only`、`account`、`model`、`title`、`scope`（它会改哪些文件夹）、`preset`（任务预设，例如 `security`）。返回 worker 的报告。在同一轮里调用多次就能并行派活。 |
 | `relay_status` | 谁是领队、哪些 worker 就绪、各自还剩多少额度，以及某个项目里的线索。 |
 | `relay_ledger` | 某个项目里 worker 做过的所有事，适合隔了很久或上下文被压缩后重新接上。 |
 
@@ -121,6 +121,7 @@ worker 在后台运行，没有人能点「批准」。所以它能做什么，�
 - **Worker 可以直接运行的命令**：Claude Code 的权限规则，比如 `Bash(npm test)`。
 - **Worker 永远不能运行的命令**：不管命令怎么写都会被拒绝，包括完整路径、`./`、放在 `cd … && …` 里。适合放只该由你或你的窗口来做的事，比如 `Bash(git push *)`。
 - **任务**：「同一文件夹一次只跑一个任务」（默认关）和「每个 worker 同时接几个任务」（默认 1）。
+- **任务预设**：针对某类工作，写进 worker 系统提示里的背景说明，让它正确理解正当的研究任务。内置的「Security research」预设会在 leader 指定（`preset: "security"`），或者任务里出现关键词（vulnerability、exploit、prompt injection、red team、漏洞、攻击等）时套用。只写关于你工作的真实情况：预设提供的是背景，不会解除任何限制。
 
 Relay 会把这些规则写进每个 worker 账号自己的 `settings.json`（你的设置加上这些规则），并保持更新。你自己的 `~/.claude/settings.json` 不会被改动。
 
@@ -170,7 +171,7 @@ flowchart LR
 ## 开发
 
 ```bash
-npm test                            # 84 个测试，用假的 claude，不消耗额度
+npm test                            # 87 个测试，用假的 claude，不消耗额度
 node src/dev.js --demo              # 在浏览器里看面板
 npx electron scripts/make-icon.js   # 从 build/logo.svg 和 build/mark.svg 生成图标
 npx electron scripts/screenshots.js # 用 demo 数据生成上面的截图

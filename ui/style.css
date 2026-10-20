@@ -352,6 +352,12 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 .rule-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 0; border-top: 1px solid var(--line); }
 .rule { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 .rules-add { padding-top: 4px; }
+.rules .badge { flex: none; font-size: 11px; color: var(--ink-3); }
+.rules .rule b { font-family: var(--font); font-weight: 500; margin-right: 4px; }
+.sheet.wide { width: min(560px, calc(100vw - 24px)); }
+.sheet textarea { width: 100%; resize: vertical; min-height: 140px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface-2); color: inherit; font: 12px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace; outline: 0; margin-bottom: 10px; }
+.sheet input[type="text"] + .field-label, .sheet textarea + .field-label { margin-top: 2px; }
 .rules-add .btn { display: inline-flex; align-items: center; gap: 6px; }
 .rr-text b { font-weight: 500; }
 .rr-text small { font-size: 12px; color: var(--ink-2); }

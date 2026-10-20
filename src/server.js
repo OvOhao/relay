@@ -232,7 +232,12 @@ function createServer({ shell = {}, takeovers = new Takeovers() } = {}) {
 
     'POST /api/settings': (body) => {
       const before = store.loadSettings().language;
-      const patch = pick(body, ['permissionMode', 'extraArgs', 'allowedTools', 'deniedTools', 'folderLock', 'jobsPerWorker', 'startAtLogin', 'language', 'panelPinned']);
+      const patch = pick(body, ['permissionMode', 'extraArgs', 'allowedTools', 'deniedTools', 'folderLock', 'jobsPerWorker', 'presets', 'startAtLogin', 'language', 'panelPinned']);
+      if ('presets' in patch) {
+        const { presets, bad } = store.cleanPresets(patch.presets);
+        if (bad) throw new Error(bad);
+        patch.presets = presets;
+      }
       if ('folderLock' in patch) patch.folderLock = !!patch.folderLock;
       if ('jobsPerWorker' in patch) {
         const n = Number(patch.jobsPerWorker);

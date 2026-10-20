@@ -459,3 +459,36 @@ test('a reading cut short on a busy computer says so, keeps the numbers, and doe
     delete process.env.RELAY_USAGE_TIMEOUT_MS;
   }
 });
+
+// ---- task presets ----
+test('task presets: security work gets the preset by keyword or by name, other work does not, "none" turns it off', async () => {
+  const root = sandbox();
+  const store = require(`${SRC}/core/store`);
+  const { runWorker } = require(`${SRC}/core/workers`);
+  store.save([['lead', true], ['w1']].map(([n, desktop]) => ({ ...store.newAccount(n, path.join(root, 'home', 'accounts', n), `${n}@x.com`), desktop: !!desktop })));
+  const cwd = path.join(root, 'proj');
+  fs.mkdirSync(cwd, { recursive: true });
+  const runs = () => fs.readFileSync(path.join(root, 'state', 'invocations.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const sec = await runWorker({ task: 'Measure prompt injection success rates on the benchmark', cwd });
+  assert.match(sec.text, /preset "security"/);
+  assert.match(runs().at(-1).appendSystem, /academic security research/);
+  const plain = await runWorker({ task: 'Fix the typo in the README', cwd });
+  assert.doesNotMatch(plain.text, /preset/);
+  assert.equal(runs().at(-1).appendSystem, null);
+  await runWorker({ task: 'Fix the typo in the README', cwd, preset: 'security' });
+  assert.match(runs().at(-1).appendSystem, /security research/);
+  await runWorker({ task: 'Write a fuzzing harness', cwd, preset: 'none' });
+  assert.equal(runs().at(-1).appendSystem, null);
+  const bad = await runWorker({ task: 'x', cwd, preset: 'nope' });
+  assert.equal(bad.code, 'bad_request');
+});
+
+test('presets are checked before they are saved', () => {
+  sandbox();
+  const store = require(`${SRC}/core/store`);
+  assert.equal(store.cleanPresets([{ id: 'Bad Id', name: 'x', text: 'y' }]).bad.includes('not a preset id'), true);
+  assert.match(store.cleanPresets([{ id: 'a', name: 'x', text: '' }]).bad, /no text/);
+  assert.match(store.cleanPresets([{ id: 'a', text: 'y' }, { id: 'a', text: 'z' }]).bad, /Two presets/);
+  const { presets } = store.cleanPresets([{ id: 'ml', name: 'ML', text: 'ctx', keywords: 'Training, GPU,, gpu', auto: false }]);
+  assert.deepEqual(presets, [{ id: 'ml', name: 'ML', text: 'ctx', keywords: ['training', 'gpu'], auto: false }]);
+});

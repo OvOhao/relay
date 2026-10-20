@@ -21,6 +21,10 @@ const TOOLS = [
         account: { type: 'string', description: 'Optional: run on this worker account (its e-mail or name as relay_status lists it), e.g. to run two jobs on two different accounts at the same time. Omit to let Relay pick the least busy worker.' },
         model: { type: 'string', description: 'Optional model for the worker, e.g. "haiku", "sonnet", "opus" or a full id such as "claude-haiku-5-5". Omit to use the worker account\'s default. Use a smaller model for mechanical work to save usage.' },
         title: { type: 'string', description: 'A 3-8 word label saying what this job is, shown in Relay\'s panel, e.g. "Build promo website". Max 60 characters.' },
+        preset: {
+          type: 'string',
+          description: 'Optional: a task preset from Relay\'s settings, e.g. "security" for security research (vulnerabilities, attacks and defences, prompt injection, red teaming, reward hacking). It gives the worker that work\'s real background in its system prompt. Relay applies a preset by itself when the job matches its keywords; pass "none" to stop that.',
+        },
         scope: {
           type: 'array', items: { type: 'string' },
           description: 'Optional: the folders this job will change, relative to cwd, e.g. ["ideas/i025-vla"]. Several jobs run in one folder at once, each on a free worker; two jobs whose scopes overlap run one after the other so they never edit the same files together. Read-only jobs never wait.',

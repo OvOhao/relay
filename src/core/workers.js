@@ -133,7 +133,7 @@ function cleanScopes(cwd, scope) {
   return { scopes: out };
 }
 
-async function runWorker({ task, context = '', cwd, thread = '', readOnly = false, model = '', title = '', account = '', scope = null, onProgress = () => {}, signal = null }) {
+async function runWorker({ task, context = '', cwd, thread = '', readOnly = false, model = '', title = '', account = '', scope = null, preset = '', onProgress = () => {}, signal = null }) {
   if (!task || !String(task).trim()) return { ok: false, code: 'bad_request', text: 'relay_run needs a task.' };
   const cleaned = store.cleanModel(model);
   if (cleaned === null) return { ok: false, code: 'bad_request', text: `model must be a model alias or id such as "haiku" or "claude-haiku-5-5" (got: ${String(model).slice(0, 40)}).` };
@@ -147,12 +147,16 @@ async function runWorker({ task, context = '', cwd, thread = '', readOnly = fals
 
   const sc = cleanScopes(cwd, scope);
   if (sc.error) return { ok: false, code: 'bad_request', text: sc.error };
+  // A task preset (Settings › Task presets): asked for by name, or applied because the job's text matches its keywords.
+  const chosen = store.choosePreset(preset, [title, task, context].join('\n'));
+  if (chosen.error) return { ok: false, code: 'bad_request', text: chosen.error };
+  const usedPreset = chosen.preset;
   const scopes = sc.scopes;
 
   const runId = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const given = clip(String(title || '').replace(/\s+/g, ' ').trim(), 60);
   const ledgerTitle = given || clip(task, 120);
-  const run = { project: path.basename(cwd) || cwd, cwd, scopes: scopes ? scopes.map((s) => path.relative(cwd, s)) : null, thread: thread || '', title: given || deriveTitle(task), kind: 'worker', status: 'running', account: null, lastLine: '', startedAt: Date.now() };
+  const run = { preset: usedPreset ? usedPreset.name : null, project: path.basename(cwd) || cwd, cwd, scopes: scopes ? scopes.map((s) => path.relative(cwd, s)) : null, thread: thread || '', title: given || deriveTitle(task), kind: 'worker', status: 'running', account: null, lastLine: '', startedAt: Date.now() };
   const tick = () => memory.writeRun(runId, { ...run, updatedAt: Date.now() });
 
   // Several jobs share one project folder: a job only waits for another when both named the files they change
@@ -241,7 +245,7 @@ async function runWorker({ task, context = '', cwd, thread = '', readOnly = fals
     });
 
     if (!(signal && signal.aborted)) {
-      const sending = engine.send({ prompt, cwd, permissionMode: readOnly ? 'plan' : store.loadSettings().permissionMode, hidden: true });
+      const sending = engine.send({ prompt, cwd, permissionMode: readOnly ? 'plan' : store.loadSettings().permissionMode, appendSystemPrompt: usedPreset ? usedPreset.text : '', hidden: true });
       if (signal && signal.aborted) engine.stop(); // aborted while the first attempt was being set up
       await sending;
     }
@@ -295,7 +299,7 @@ async function runWorker({ task, context = '', cwd, thread = '', readOnly = fals
   return {
     ok: true, code: 'done', sessionId: engine.sessionId, thread, account: who,
     text: [
-      `[relay] worker ${who}${modelUsed ? ` · model ${modelUsed}` : ''}${thread ? ` · thread "${thread}"` : ''} finished.`,
+      `[relay] worker ${who}${modelUsed ? ` · model ${modelUsed}` : ''}${thread ? ` · thread "${thread}"` : ''}${usedPreset ? ` · preset "${usedPreset.id}"` : ''} finished.`,
       thread ? `Continue this line of work later with the same thread name; the worker remembers everything.` : '',
       '',
       report || '(the worker returned no text)',

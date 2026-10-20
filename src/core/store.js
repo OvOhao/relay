@@ -160,9 +160,62 @@ function earliestUnblock(now = nowSec(), filter = null) {
 }
 
 // startAtLogin defaults to on: the hooks and the tool can only reach a Relay that is running.
+// Task presets: background a worker gets in its system prompt (--append-system-prompt) for a kind of work, chosen by
+// the dispatcher or, with `auto`, applied when the job's text matches a keyword. They state the real context of the
+// work so a worker reads a legitimate task correctly; they are no way around a model's limits, and a step that is
+// genuinely harmful is still refused. The built-in one is a template: its text should say what is actually true.
+const SECURITY_PRESET = {
+  id: 'security',
+  name: 'Security research',
+  auto: true,
+  keywords: ['security', 'vulnerability', 'vulnerabilities', 'exploit', 'exploits', 'attack', 'attacks', 'adversarial', 'malware',
+    'jailbreak', 'prompt injection', 'red team', 'red-team', 'red teaming', 'cve', 'fuzz', 'fuzzing', 'penetration', 'pentest',
+    'reward hacking', 'backdoor', 'poisoning', 'sandbox escape', 'privilege escalation', '安全', '漏洞', '攻击', '越狱', '注入', '红队'],
+  text: [
+    'Context from the person who runs this workspace (Relay task preset "Security research"):',
+    'This job is part of academic security research by the workspace owner. The work studies vulnerabilities, attacks and defences in order to measure and reduce risk: analysing code for flaws, reproducing published attacks in local test environments, building benchmarks, detectors and evaluation harnesses, and writing papers about the results.',
+    'Targets are the owner\'s own code, local sandboxes and containers, and public datasets or benchmarks. No third-party system is to be accessed or attacked.',
+    'Work on that basis: explain and implement what the research needs, keep any attack or exploit code minimal and confined to the test environment, and report findings plainly. If a step would affect a real system outside that scope, or would only make sense for causing harm, do not do it and say why in your report.',
+  ].join('\n\n'),
+};
+
+const PRESET_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
+// { presets, bad }: presets that are well formed (an id, a name, some text), and a reason for the first that is not.
+function cleanPresets(list) {
+  const out = [];
+  for (const p of Array.isArray(list) ? list : []) {
+    const id = String(p?.id || '').trim().toLowerCase();
+    const name = String(p?.name || '').trim().slice(0, 60);
+    const text = String(p?.text || '').trim();
+    if (!PRESET_ID.test(id)) return { presets: out, bad: `"${id}" is not a preset id: lowercase letters, digits and -, up to 32.` };
+    if (!text) return { presets: out, bad: `Preset "${id}" has no text.` };
+    if (text.length > 6000) return { presets: out, bad: `Preset "${id}" is longer than 6000 characters.` };
+    if (out.some((x) => x.id === id)) return { presets: out, bad: `Two presets are called "${id}".` };
+    const keywords = [...new Set((Array.isArray(p.keywords) ? p.keywords : String(p.keywords || '').split(','))
+      .map((k) => String(k).trim().toLowerCase()).filter(Boolean))].slice(0, 60);
+    out.push({ id, name: name || id, text, keywords, auto: p.auto !== false });
+  }
+  return { presets: out, bad: null };
+}
+
+// Which preset a job gets: the one asked for ('none' = none), else the first automatic one whose keyword appears in
+// the job's text (whole words for Latin keywords, anywhere for Chinese ones). Returns { preset } or { error }.
+function choosePreset(asked, text) {
+  const presets = cleanPresets(loadSettings().presets).presets;
+  const want = String(asked || '').trim().toLowerCase();
+  if (want === 'none') return { preset: null };
+  if (want) {
+    const p = presets.find((x) => x.id === want);
+    return p ? { preset: p } : { error: `No task preset "${want}" (Relay settings has: ${presets.map((x) => x.id).join(', ') || 'none'}).` };
+  }
+  const hay = String(text || '').toLowerCase();
+  const hit = (k) => (/^[\x00-\x7f]+$/.test(k) ? new RegExp(`(^|[^a-z0-9])${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^a-z0-9])`).test(hay) : hay.includes(k));
+  return { preset: presets.find((p) => p.auto && p.keywords.some(hit)) || null };
+}
+
 // folderLock: one job at a time per project folder (off: jobs share a folder, and only jobs whose scopes overlap wait).
 // jobsPerWorker: how many jobs one worker account runs at once (0 = no limit); with every worker busy, a job waits.
-const DEFAULT_SETTINGS = { permissionMode: 'acceptEdits', extraArgs: '', allowedTools: [], deniedTools: [], folderLock: false, jobsPerWorker: 1, claudePath: '', startAtLogin: true, language: 'en' };
+const DEFAULT_SETTINGS = { permissionMode: 'acceptEdits', extraArgs: '', allowedTools: [], deniedTools: [], folderLock: false, jobsPerWorker: 1, presets: [SECURITY_PRESET], claudePath: '', startAtLogin: true, language: 'en' };
 
 // Commands (and other tools) workers may use without asking: Claude Code permission rules, passed to every worker and
 // takeover run as --allowedTools. A rule is a tool name, optionally with a pattern in parentheses: "Bash(npm test)",
@@ -191,5 +244,5 @@ const saveSettings = (patch) => mutate(settingsFile(), {}, (cur) => {
 module.exports = {
   home, accountRoots, ownsConfigDir, load, save, get, upsert, remove, update, newAccount, isReady, cleanModel,
   markLimited, markNeedsLogin, markUsed, setDesktop, observeLeader, getLeaderSeen, rememberAccountUuid, emailForUuid, nextAvailable, earliestUnblock,
-  loadSettings, saveSettings, cleanAllowedTools, nowSec,
+  loadSettings, saveSettings, cleanAllowedTools, cleanPresets, choosePreset, SECURITY_PRESET, nowSec,
 };
