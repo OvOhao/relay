@@ -89,7 +89,7 @@ function syncSharedFiles(dir) {
     const want = workerSettings();
     if (want === null) {
       const src = path.join(hubDir(), 'settings.json');
-      if (exists(src) && (!exists(dst) || fs.statSync(src).mtimeMs > fs.statSync(dst).mtimeMs)) fs.copyFileSync(src, dst);
+      if (exists(src) && (!exists(dst) || fs.statSync(src).mtimeMs > fs.statSync(dst).mtimeMs)) fslock.writeFileAtomic(dst, fs.readFileSync(src));
     } else {
       const text = `${JSON.stringify(want, null, 2)}\n`;
       let cur = null;
@@ -101,7 +101,8 @@ function syncSharedFiles(dir) {
     const src = path.join(hubDir(), f);
     const dst = path.join(dir, f);
     try {
-      if (!exists(dst) || fs.statSync(src).mtimeMs > fs.statSync(dst).mtimeMs) fs.copyFileSync(src, dst);
+      // atomically: several jobs on one account start at once, and a run must never read a half-copied file
+      if (!exists(dst) || fs.statSync(src).mtimeMs > fs.statSync(dst).mtimeMs) fslock.writeFileAtomic(dst, fs.readFileSync(src));
     } catch { /* hub file absent: nothing to share */ }
   }
 }
@@ -151,7 +152,10 @@ function syncSessionBack(acct, { sessionId, transcriptPath }) {
 // Every worker account at once: after the allowed commands change, and now and then (a Relay tool started by an
 // older Claude window copies your settings.json over the worker's when yours changes).
 function syncAllAccounts() {
-  for (const a of store.load()) { try { if (fs.existsSync(a.configDir)) syncSharedFiles(a.configDir); } catch { /* next round */ } }
+  for (const a of store.load()) {
+    if (a.provider && a.provider !== 'claude') continue; // Claude settings only go into Claude sign-in folders
+    try { if (fs.existsSync(a.configDir)) syncSharedFiles(a.configDir); } catch { /* next round */ }
+  }
 }
 
 module.exports = { prepareConfigDir, syncSharedFiles, syncAllAccounts, workerSettings, removeConfigDir, accountDir, hubDir, ensureSession, syncSessionBack };

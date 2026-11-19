@@ -150,7 +150,7 @@ function mcpSession(extraEnv = {}) {
   return { call, child, close: () => child.kill() };
 }
 
-test('MCP server speaks the protocol and exposes the three tools', async () => {
+test('MCP server speaks the protocol and exposes its tools', async () => {
   const s = sandbox({ w1: ['ok'] });
   const m = mcpSession();
   try {
@@ -158,7 +158,8 @@ test('MCP server speaks the protocol and exposes the three tools', async () => {
     assert.equal(init.result.serverInfo.name, 'relay');
     assert.equal(init.result.protocolVersion, '2025-06-18');
     const list = await m.call('tools/list', {});
-    assert.deepEqual(list.result.tools.map((t) => t.name), ['relay_run', 'relay_status', 'relay_ledger']);
+    assert.deepEqual(list.result.tools.map((t) => t.name), ['relay_run', 'relay_status', 'relay_health', 'relay_ledger', 'relay_start', 'relay_wait', 'relay_poll', 'relay_cancel', 'relay_ack', 'relay_wake', 'relay_help']);
+    assert.deepEqual(list.result.tools[4].inputSchema, list.result.tools[0].inputSchema, 'relay_start takes exactly relay_run\'s parameters');
     assert.deepEqual(list.result.tools[0].inputSchema.required, ['task', 'cwd']);
 
     const status = await m.call('tools/call', { name: 'relay_status', arguments: { cwd: s.project } });
@@ -255,6 +256,27 @@ test('worker model: a request\'s model wins, else the account\'s own default, el
   assert.equal(s.store.cleanModel('a b'), null);
 });
 
+test('worker effort: only when asked, per call (also when continuing a thread); unknown levels are refused', async () => {
+  const s = sandbox({ w1: ['ok', 'ok', 'ok'] }, [['lead', 'lead@x.com', { desktop: true }], ['w1', 'w1@x.com', { model: 'haiku' }]]);
+  const { runWorker } = require(`${ROOT_SRC}/core/workers`);
+  const a = await runWorker({ task: 'a', cwd: s.project, thread: 't' });
+  assert.doesNotMatch(a.text, /effort/, 'no effort asked for, none reported');
+  const b = await runWorker({ task: 'b', cwd: s.project, thread: 't', effort: ' XHigh ', model: 'opus' });
+  assert.match(b.text, /model fake-model · effort xhigh · thread "t"/);
+  await runWorker({ task: 'c', cwd: s.project, thread: 't' });
+  const inv = s.invocations();
+  assert.deepEqual(inv.map((i) => i.effort), [null, 'xhigh', null], 'the level applies to the call that asked for it only');
+  assert.deepEqual(inv.map((i) => i.model), ['haiku', 'opus', 'haiku']);
+  assert.ok(inv[1].resume && inv[2].resume, 'the later calls continued the thread');
+  const bad = await runWorker({ task: 'd', cwd: s.project, effort: 'high --dangerously-skip-permissions' });
+  assert.equal(bad.code, 'bad_request');
+  assert.match(bad.text, /low, medium, high, xhigh, max/);
+  assert.equal(s.invocations().length, 3, 'nothing was started for the refused level');
+  assert.equal(s.store.cleanEffort(''), '');
+  assert.equal(s.store.cleanEffort('MAX'), 'max');
+  assert.equal(s.store.cleanEffort('ultra'), null);
+});
+
 test('worker run in a git project reports files changed by a shell command, not only by Edit/Write', async () => {
   const { execFileSync } = require('child_process');
   const s = sandbox({ w1: ['ok'] });
@@ -293,7 +315,7 @@ test('workers start in a clean environment: no host variables leak in from the C
   }
 });
 
-test('relay_run lists title and model in its schema', async () => {
+test('relay_run lists title, model and effort in its schema', async () => {
   sandbox({});
   const m = mcpSession();
   try {
@@ -301,6 +323,7 @@ test('relay_run lists title and model in its schema', async () => {
     const props = (await m.call('tools/list', {})).result.tools[0].inputSchema.properties;
     assert.equal(props.title.type, 'string');
     assert.equal(props.model.type, 'string');
+    assert.deepEqual(props.effort.enum, ['low', 'medium', 'high', 'xhigh', 'max']);
     assert.match(props.title.description, /60 characters/);
   } finally {
     m.close();

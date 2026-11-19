@@ -16,7 +16,7 @@ const T = {
     activity: 'Activity', recent: 'Recent', idle: 'Nothing running. Keep working in Claude as usual.',
     stop: 'Stop', starting: 'Starting…', continuing_on: (x) => `Continuing on ${x}`, takeover_tag: 'Takeover',
     waiting_until: (x) => `All accounts are recharging · continues ${x} ·`,
-    finished: 'Finished', failed: 'Could not finish', stopped: 'Stopped',
+    finished: 'Finished', failed: 'Could not finish', stopped: 'Stopped', flagged: (f) => `Flagged: ${f} (resolve with relay_ack once checked)`,
     v_read: (x) => `Reading ${x}`, v_edit: (x) => `Editing ${x}`, v_write: (x) => `Writing ${x}`, v_run: (x) => `Running ${x}`,
     v_search: (x) => `Searching ${x}`, v_find: (x) => `Finding ${x}`, v_list: (x) => `Listing ${x}`, v_fetch: (x) => `Fetching ${x}`,
     v_web: (x) => `Searching the web for ${x}`, v_plan: () => 'Updating the plan', v_agent: (x) => `Delegating ${x}`, v_use: (x) => `Using ${x}`,
@@ -35,17 +35,23 @@ const T = {
     // accounts
     accounts: 'Accounts', refresh_usage: 'Refresh usage', more_actions: (x) => `More actions for ${x}`,
     ready: 'Ready', working: 'Working now', limited: 'Limited', back_in_pre: 'back in ', back_in_post: '',
+    working_jobs: (n, cap) => `Working · ${cap != null ? `${n}/${cap}` : n} job${n === 1 && cap == null ? '' : 's'}`,
+    cap_title: (c) => c.unknown ? `Usage unknown → up to ${c.cap} jobs at once` : c.weekFull ? `Week at 95% or more → ${c.cap ? '1 job, every other worker is full' : 'no job while another worker has room'}` : `Daily spare ${c.spare}%/day → up to ${c.cap} jobs at once`, parked_wakes: (x) => `Parked · wakes ${x}`, more_jobs: (n) => `+${n} more`,
+    parked_tip: 'Long-running work was launched and checked; no worker is held until this time, then the same session checks on it.',
     signin_needed: 'Sign-in needed', sign_in: 'Sign in',
     set_leader: 'Set as this window’s account', signin_again: 'Sign in again', remove: 'Remove',
+    check_health: 'Check health', health_ok: 'Health ok', health_bad: (x) => `Health: ${x}`, health_checking: 'Checking health…',
+    health_tip: (p, at) => `Last health check in ${p} at ${at}: the project's health_checks commands and workspace trust. Relay never changes an account's trust or permissions; relay_health tells you the fix.`,
+    prio: { high: 'High priority', low: 'Low priority' },
     confirm_remove_title: 'Remove this account?', confirm_remove: (x) => `${x} will be removed and its saved sign-in on this computer deleted.`,
-    usage_5h: '5h', usage_wk: 'Week', resets_at: (x) => `resets ${x}`,
+    usage_5h: '5h', usage_wk: 'Week', usage_fable: 'Fable wk', resets_at: (x) => `resets ${x}`,
     usage_reading: 'Reading usage…', usage_unavailable: 'Usage not available yet', usage_updating: 'Updating…',
     usage_failed: 'Could not read usage', usage_from: 'numbers from\u00a0', usage_from_post: '', usage_old: 'numbers are old',
     updated_pre: 'Updated ', updated_post: '', age_now: 'just now', age_s: (s) => `${s}s ago`, age_m: (m) => `${m} min ago`, age_h: (h) => `${h} h ago`, age_d: (d) => (d === 1 ? 'yesterday' : `${d} days ago`),
     model_aria: (x) => `Model: ${x}. Change`, model_tip: 'The model this account uses when Relay runs work on it. A model named in a request wins over this.',
-    model_default: 'Account default', model_haiku: 'Haiku', model_sonnet: 'Sonnet', model_opus: 'Opus', model_custom: 'Other…',
-    model_haiku_d: 'Light, saves usage', model_sonnet_d: 'Balanced', model_opus_d: 'Strongest',
-    model_custom_title: 'Choose a model', model_custom_sub: 'An alias (haiku, sonnet, opus) or a full model id such as claude-haiku-5-5. Leave empty for the account default.',
+    model_default: 'Account default', model_haiku: 'Haiku', model_sonnet: 'Sonnet', model_opus: 'Opus', model_fable: 'Fable', model_custom: 'Other…',
+    model_haiku_d: 'Light, saves usage', model_sonnet_d: 'Balanced', model_opus_d: 'Strong, all-round', model_fable_d: 'Most capable, has its own weekly limit',
+    model_custom_title: 'Choose a model', model_custom_sub: 'An alias (haiku, sonnet, opus, fable) or a full model id such as claude-haiku-5-5 or claude-fable-5-1. Leave empty for the account default.',
     model_label: 'Model',
     // settings
     set_lang: 'Language', set_perm: 'While taking over, Claude may',
@@ -62,7 +68,7 @@ const T = {
     never_d: 'Refused for every worker and takeover, however the command is written (a full path, ./, inside cd … && …). Your own window is not affected.',
     never_none: 'None yet.', never_add: 'Add a rule…', never_add_title: 'Never allow a command', never_hint: 'For example: Bash(git push *) · Bash(bin/tool freeze *) · Bash(ssh server *rm *)',
     set_jobs: 'Jobs', jobs_folder: 'One job at a time per folder', jobs_folder_d: 'Off: several workers work in the same folder at once; only jobs that name overlapping folders (scope) wait for each other.',
-    jobs_per: 'Jobs per worker at once', jobs_per_d: 'With every worker busy, a new job waits for the first one to come free.', jobs_any: 'No limit',
+    jobs_per: 'Jobs per worker at once', jobs_per_d: 'Each job is its own session; several run side by side on one account, at most 3. Jobs are spread: every worker gets one before any gets a second. With every worker full, a new job waits for the first free slot. Parked jobs take no slot.', jobs_any: 'No limit',
     set_presets: 'Task presets', presets_d: 'Background a worker gets in its system prompt for a kind of work: picked by the dispatcher, or applied when a job matches the keywords. Write only what is true about your work; a preset gives context, it lifts no limit.',
     preset_auto: 'Automatic', preset_manual: 'When asked', preset_edit: 'Edit', preset_add: 'Add a preset…', preset_title: 'Task preset',
     preset_id: 'Name used by the dispatcher (id)', preset_name: 'Display name', preset_text: 'Background for the worker', preset_kw: 'Keywords (comma separated)',
@@ -90,6 +96,26 @@ const T = {
     n_leader: (p) => `Leader changed: this window now uses ${p.to || p.outside}`,
     n_done: (p) => `“${p.job.project}” finished on ${p.job.account || 'another account'}`,
     n_failed: (p) => `“${p.job.project}” could not be finished`, n_needs_login: (p) => `${p.account} needs to sign in again`,
+    // leader as a worker, tiers, progress checks, dispatch
+    takes_jobs: 'Leader takes jobs too', takes_jobs_d: 'Off: jobs only go to your other accounts. On: this account takes jobs like any worker, with its own tier and cap, on its own usage.',
+    tier: 'Tier', tier_n: (n) => `Tier ${n}`, tier_tip: 'Who gets jobs first: at the same number of running jobs, tier 1 before tier 2 before tier 3. Every worker still gets one job before any gets a second.',
+    check_progress: 'Check progress', check_progress_tip: 'Wake this worker’s parked jobs now: each one checks on its work and reports back.',
+    check_none: (x) => `${x} has no parked jobs.`, check_started: (n) => `Checking ${n} parked job${n === 1 ? '' : 's'} now…`,
+    checking: (x) => `Checking · ${x}`, check_waiting: (x) => `Waiting for a worker · ${x}`, check_open: 'Open the report', check_title: 'Progress check',
+    check_outcome: { 'parked again': 'parked again', finished: 'finished' },
+    wake_overdue: 'WAKE OVERDUE', wake_overdue_tip: (m) => `The wake was due ${m} min ago. Relay starts a new runner for it at its next minute check, or press Check progress.`,
+    n_check: (p) => `Progress check · ${p.title || p.project}: ${(p.check && p.check.short) || '(no report)'}`,
+    dispatch: 'Dispatch', dispatch_title: 'Dispatch a job', dispatch_sub: 'Runs in the background like relay_start. Collect it from any Claude window with relay_poll (cwd).',
+    f_task: 'Task', f_task_ph: 'What to do, what “done” looks like, how to check it. The worker sees only this.',
+    f_cwd: 'Project folder', f_choose: 'Choose…', f_recent: 'Recent folders', f_thread: 'Thread (optional)', f_thread_hint: 'Reuse a name to continue that line of work; leave empty for a one-off.',
+    f_title: 'Title (optional)', f_agent: 'Agent', f_model: 'Model', f_effort: 'Effort', effort_default: 'Default', f_ro: 'Read-only: changes no file',
+    f_scope: 'Scope (folders it changes, comma separated)', f_scope_req: 'This project requires a scope for jobs that may change files.',
+    f_prio: 'Priority', prio_normal: 'Normal', prio_high: 'High', prio_low: 'Low', f_target: 'Run on', target_auto: 'Automatic', target_leader: (x) => `${x} (leader)`,
+    dispatch_go: 'Start', dispatched: (id) => `Started job ${id}. It shows under Activity.`, folder_missing: 'This folder does not exist.',
+    set_bgwait: 'Longest wait of a background job', bgwait_d: 'Background jobs (relay_start, parked jobs’ wakes, jobs started here) wait for a free worker or their folder and show their place in line. relay_run still gives up after 30 minutes.',
+    bgwait_none: 'No limit', bgwait_h: (h) => `${h} h`,
+    set_wake: 'Scheduled wakes', wake_awake: 'Keep the Mac awake for wakes', wake_awake_d: (m) => `From ${m} min before a parked job’s wake until its check ends, Relay keeps the Mac from idle-sleeping (caffeinate). Closing the lid on battery still sleeps it.`,
+    wake_before: 'Start this long before the wake', min_n: (n) => `${n} min`,
   },
   zh: {
     app: 'Relay', tabs: '分区', tab_overview: '概览', tab_accounts: '账号',
@@ -101,7 +127,7 @@ const T = {
     activity: '动态', recent: '最近', idle: '暂时没有任务，照常在 Claude 里工作就行。',
     stop: '停止', starting: '正在启动…', continuing_on: (x) => `正在 ${x} 上继续`, takeover_tag: '接管',
     waiting_until: (x) => `所有账号都在恢复额度 · ${x} 自动继续 ·`,
-    finished: '已完成', failed: '未能完成', stopped: '已停止',
+    finished: '已完成', failed: '未能完成', stopped: '已停止', flagged: (f) => `有标记：${f}（核查后用 relay_ack 标为已处理）`,
     v_read: (x) => `正在读取 ${x}`, v_edit: (x) => `正在编辑 ${x}`, v_write: (x) => `正在写入 ${x}`, v_run: (x) => `正在运行 ${x}`,
     v_search: (x) => `正在搜索 ${x}`, v_find: (x) => `正在查找 ${x}`, v_list: (x) => `正在列出 ${x}`, v_fetch: (x) => `正在获取 ${x}`,
     v_web: (x) => `正在网上搜索 ${x}`, v_plan: () => '正在更新计划', v_agent: (x) => `正在委派 ${x}`, v_use: (x) => `正在使用 ${x}`,
@@ -118,17 +144,23 @@ const T = {
     use_current: '使用当前登录', add_account: '添加账号',
     accounts: '账号', refresh_usage: '刷新额度', more_actions: (x) => `${x} 的更多操作`,
     ready: '就绪', working: '正在工作', limited: '额度用完', back_in_pre: '', back_in_post: ' 后恢复',
+    working_jobs: (n, cap) => `正在工作 · ${cap != null ? `${n}/${cap}` : n} 个任务`,
+    cap_title: (c) => c.unknown ? `额度未知 → 同时最多 ${c.cap} 个任务` : c.weekFull ? `本周额度已用 95% 以上 → ${c.cap ? '其他 worker 都满了，可接 1 个' : '其他 worker 有空位时不接任务'}` : `每天可用余量 ${c.spare}%/天 → 同时最多 ${c.cap} 个任务`, parked_wakes: (x) => `已挂起 · ${x} 回来检查`, more_jobs: (n) => `还有 ${n} 个`,
+    parked_tip: '长时间运行的任务已启动并确认在跑；到这个时间之前不占用任何 worker，到时同一个会话回来检查。',
     signin_needed: '需要重新登录', sign_in: '登录',
     set_leader: '设为本窗口的账号', signin_again: '重新登录', remove: '移除',
+    check_health: '检查健康状态', health_ok: '健康', health_bad: (x) => `健康：${x}`, health_checking: '正在检查…',
+    health_tip: (p, at) => `${p} 的上次健康检查（${at}）：项目 health_checks 里的命令和工作区信任。Relay 不会改账号的信任或权限；relay_health 会给出修复方法。`,
+    prio: { high: '高优先级', low: '低优先级' },
     confirm_remove_title: '移除这个账号？', confirm_remove: (x) => `将移除 ${x}，并删除本机上保存的登录信息。`,
-    usage_5h: '5小时', usage_wk: '本周', resets_at: (x) => `${x} 恢复`,
+    usage_5h: '5小时', usage_wk: '本周', usage_fable: 'Fable 周', resets_at: (x) => `${x} 恢复`,
     usage_reading: '读取额度中…', usage_unavailable: '额度暂时读不到', usage_updating: '更新中…',
     usage_failed: '额度读取失败', usage_from: '显示的是', usage_from_post: '的数据', usage_old: '显示的是旧数据',
     updated_pre: '', updated_post: '更新', age_now: '刚刚', age_s: (s) => `${s} 秒前`, age_m: (m) => `${m} 分钟前`, age_h: (h) => `${h} 小时前`, age_d: (d) => (d === 1 ? '昨天' : `${d} 天前`),
     model_aria: (x) => `模型：${x}。点击更改`, model_tip: 'Relay 在这个账号上干活时用的模型。请求里单独指定了模型时，以请求为准。',
-    model_default: '账号默认', model_haiku: 'Haiku', model_sonnet: 'Sonnet', model_opus: 'Opus', model_custom: '其他…',
-    model_haiku_d: '轻量，省额度', model_sonnet_d: '均衡', model_opus_d: '最强',
-    model_custom_title: '选择模型', model_custom_sub: '填别名（haiku、sonnet、opus）或完整模型 ID，比如 claude-haiku-5-5。留空表示账号默认。',
+    model_default: '账号默认', model_haiku: 'Haiku', model_sonnet: 'Sonnet', model_opus: 'Opus', model_fable: 'Fable', model_custom: '其他…',
+    model_haiku_d: '轻量，省额度', model_sonnet_d: '均衡', model_opus_d: '强，全面', model_fable_d: '能力最强，单独计周额度',
+    model_custom_title: '选择模型', model_custom_sub: '填别名（haiku、sonnet、opus、fable）或完整模型 ID，比如 claude-haiku-5-5、claude-fable-5-1。留空表示账号默认。',
     model_label: '模型',
     set_lang: '语言', set_perm: '接管期间允许 Claude',
     perm_auto: '像你的窗口一样自动判断（auto）', perm_auto_d: '使用 Claude Code 的 auto 模式：常规命令直接执行，有风险的操作会被拒绝。可以和下面的规则一起用。',
@@ -144,7 +176,7 @@ const T = {
     never_d: '对每个 worker 和接管任务都会拒绝，不管命令怎么写（完整路径、./、放在 cd … && … 里）。不影响你自己的窗口。',
     never_none: '还没有。', never_add: '添加规则…', never_add_title: '禁止一条命令', never_hint: '例如：Bash(git push *) · Bash(bin/tool freeze *) · Bash(ssh 服务器 *rm *)',
     set_jobs: '任务', jobs_folder: '同一文件夹一次只跑一个任务', jobs_folder_d: '关闭时，多个 worker 可以同时在同一个文件夹里工作；只有声明的改动范围（scope）重叠的任务才会互相等待。',
-    jobs_per: '每个 worker 同时接几个任务', jobs_per_d: '所有 worker 都在忙时，新任务会等第一个空出来的 worker。', jobs_any: '不限',
+    jobs_per: '每个 worker 同时接几个任务', jobs_per_d: '每个任务是独立的会话，同一个账号上可以同时跑几个，最多 3 个。任务会先分散开：每个 worker 都分到一个之后，才会有 worker 接第二个。所有 worker 都满了时，新任务会等第一个空位。挂起的任务不占位置。', jobs_any: '不限',
     set_presets: '任务预设', presets_d: '针对某类工作，写进 worker 系统提示里的背景说明：由 leader 指定，或者任务内容命中关键词时自动套用。只写关于你工作的真实情况；预设提供的是背景，不会解除任何限制。',
     preset_auto: '自动', preset_manual: '指定时', preset_edit: '编辑', preset_add: '添加预设…', preset_title: '任务预设',
     preset_id: 'leader 使用的名称（id）', preset_name: '显示名称', preset_text: '给 worker 的背景说明', preset_kw: '关键词（用逗号分隔）',
@@ -171,6 +203,25 @@ const T = {
     n_leader: (p) => `领队已切换：这个窗口现在用的是 ${p.to || p.outside}`,
     n_done: (p) => `“${p.job.project}”已完成`,
     n_failed: (p) => `“${p.job.project}”未能完成`, n_needs_login: (p) => `${p.account} 需要重新登录`,
+    takes_jobs: '主账号也接任务', takes_jobs_d: '关闭时任务只交给你的其他账号。打开后这个账号也像普通 worker 一样接任务（有自己的档位和上限），用的是它自己的额度。',
+    tier: '档位', tier_n: (n) => `${n} 档`, tier_tip: '谁先接任务：正在跑的任务数一样时，1 档先于 2 档，2 档先于 3 档。每个 worker 仍然先各分到一个任务，才会有人接第二个。',
+    check_progress: '检查进度', check_progress_tip: '立刻唤醒这个 worker 挂起的任务：每个任务看一下进展并汇报。',
+    check_none: (x) => `${x} 没有挂起的任务。`, check_started: (n) => `正在检查 ${n} 个挂起的任务…`,
+    checking: (x) => `正在检查 · ${x}`, check_waiting: (x) => `在等空闲的 worker · ${x}`, check_open: '查看完整报告', check_title: '进度检查',
+    check_outcome: { 'parked again': '已再次挂起', finished: '已完成' },
+    wake_overdue: '唤醒超时', wake_overdue_tip: (m) => `本该在 ${m} 分钟前唤醒。Relay 每分钟检查一次，会为它重新启动；也可以点“检查进度”。`,
+    n_check: (p) => `进度检查 · ${p.title || p.project}：${(p.check && p.check.short) || '（没有报告）'}`,
+    dispatch: '派任务', dispatch_title: '派任务', dispatch_sub: '像 relay_start 一样在后台运行。在任何 Claude 窗口里用 relay_poll（cwd）都能取回结果。',
+    f_task: '任务内容', f_task_ph: '要做什么、做到什么程度算完成、怎么验证。worker 只看得到这里写的内容。',
+    f_cwd: '项目文件夹', f_choose: '选择…', f_recent: '最近的文件夹', f_thread: '线程名（可选）', f_thread_hint: '用同一个名字可以接着之前那条线的工作；一次性任务留空。',
+    f_title: '标题（可选）', f_agent: 'Agent', f_model: '模型', f_effort: '思考强度', effort_default: '默认', f_ro: '只读：不改任何文件',
+    f_scope: '改动范围 scope（会改的文件夹，用逗号分隔）', f_scope_req: '这个项目要求可能改文件的任务写明 scope。',
+    f_prio: '优先级', prio_normal: '普通', prio_high: '高', prio_low: '低', f_target: '分配给', target_auto: '自动分配', target_leader: (x) => `${x}（主账号）`,
+    dispatch_go: '开始', dispatched: (id) => `已开始任务 ${id}，可以在“动态”里看到。`, folder_missing: '这个文件夹不存在。',
+    set_bgwait: '后台任务最多等多久', bgwait_d: '后台任务（relay_start、挂起任务的唤醒、从这里派的任务）会排队等空闲的 worker 或文件夹，并显示排第几。relay_run 仍然最多等 30 分钟。',
+    bgwait_none: '不限', bgwait_h: (h) => `${h} 小时`,
+    set_wake: '定时唤醒', wake_awake: '唤醒时不让 Mac 睡眠', wake_awake_d: (m) => `从挂起任务唤醒前 ${m} 分钟到检查结束，Relay 用 caffeinate 阻止 Mac 闲置睡眠。用电池时合上盖子仍会睡眠。`,
+    wake_before: '提前多久开始', min_n: (n) => `${n} 分钟`,
   },
 };
 let LANG = 'en';
@@ -225,6 +276,7 @@ const ICONS = {
   login: '<path d="M10 17l5-5-5-5M15 12H3M14 4h5a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5"/>',
   external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
   stop: '<rect x="7" y="7" width="10" height="10" rx="1.5"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
 };
 function icon(name, cls = 'ic') {
   const s = document.createElementNS(SVGNS, 'svg');
@@ -450,10 +502,12 @@ function avatar(a, cls = '') {
 const stateOf = (a) => (a.active ? 'working' : a.status);
 function statusLine(a) {
   const s = stateOf(a);
-  const text = s === 'working' ? t('working')
+  const n = (a.work || []).length;
+  const cap = a.cap ? a.cap.cap : null; // this worker's own cap from its weekly quota
+  const text = s === 'working' ? (n ? t('working_jobs', n, cap) : t('working'))
     : s === 'limited' ? [t('limited'), ' · ', t('back_in_pre'), h('span', { class: 'num', 'data-cd': a.blockedUntil }, fmtCountdown(a.blockedUntil)), t('back_in_post')]
       : s === 'login' ? t('signin_needed') : t('ready');
-  return h('div', { class: `status s-${s}`, title: s === 'limited' ? t('resets_at', fmtTime(a.blockedUntil)) : null }, h('i', { class: 'dot' }), h('span', {}, text));
+  return h('div', { class: `status s-${s}`, title: s === 'limited' ? t('resets_at', fmtTime(a.blockedUntil)) : a.cap ? t('cap_title', a.cap) : null }, h('i', { class: 'dot' }), h('span', {}, text));
 }
 // The spinner is for readings someone is waiting for: an account's first one, or after pressing Refresh.
 // Background re-reads (every 30 s while the window is open) only move the quiet "Updated …" text.
@@ -481,7 +535,9 @@ function usageBlock(a, where) {
       h('span', { class: 'u-pct num', 'data-count': isNew ? String(pct) : null }, `${pct}%`),
       h('span', { class: 'u-reset', title: r.resetsAt ? fmtTime(r.resetsAt) : null }, r.resetsAt ? t('resets_at', fmtTime(r.resetsAt)) : ''));
   };
-  return h('div', { class: 'usage' }, row('5h', t('usage_5h'), u.session), row('wk', t('usage_wk'), u.week));
+  // Fable has a weekly limit of its own ("Current week (Fable)"): shown when the account reports it
+  const fable = (u.others || []).find((r) => /fable/i.test(r.label || ''));
+  return h('div', { class: 'usage' }, row('5h', t('usage_5h'), u.session), row('wk', t('usage_wk'), u.week), row('fable', t('usage_fable'), fable));
 }
 // The last try failed: say so, and how old the numbers still shown are, instead of a fresh-looking "Updated just now".
 const usageFailed = (a) => !!a.usageError && (a.usageTriedAt || 0) > (a.usageAt || 0);
@@ -496,7 +552,7 @@ function ageLine(a) {
 }
 
 // Which model this account's worker runs use by default. The leader is left out: its model is set in the Claude window.
-const MODEL_CHOICES = ['haiku', 'sonnet', 'opus'];
+const MODEL_CHOICES = ['haiku', 'sonnet', 'opus', 'fable'];
 const modelName = (m) => (!m ? t('model_default') : MODEL_CHOICES.includes(m) ? t(`model_${m}`) : m);
 function modelChip(a) {
   const name = modelName(a.model);
@@ -504,12 +560,70 @@ function modelChip(a) {
     icon('layers', 'ic sm'), h('span', {}, name), icon('down', 'ic xs'));
 }
 
+// A Codex account (agent "codex") runs its own model, set when it was added: shown as text, there is no Claude model menu.
+const isCodex = (a) => a.provider === 'codex';
+function codexModel(a) {
+  return h('span', { class: 'chip-plain', title: a.model || '' }, icon('layers', 'ic sm'), h('span', { class: 'selectable' }, a.model || t('model_default')));
+}
+
 /* ---------- account cards ---------- */
+// What a worker is doing: the titles of the jobs it runs right now (several at once), then its parked jobs.
+const SHOWN_JOBS = 4;
+function acctJobs(a) {
+  const work = a.work || [];
+  const parked = a.parked || [];
+  const checks = a.checks || [];
+  if (!work.length && !parked.length && !checks.length) return null;
+  const items = [
+    ...work.slice(0, SHOWN_JOBS).map((j) => h('li', { class: 'aj run', 'data-key': `aw-${j.id}`, title: j.project }, h('i', { class: 'dot' }), h('span', { class: 'aj-t' }, j.title || j.project))),
+    work.length > SHOWN_JOBS ? h('li', { class: 'aj more', 'data-key': 'aw-more' }, t('more_jobs', work.length - SHOWN_JOBS)) : null,
+    // parked jobs; one whose wake is overdue gets a WAKE OVERDUE badge
+    ...parked.map((j) => h('li', { class: `aj parked ${j.overdueMin ? 'overdue' : ''}`.trim(), 'data-key': `ap-${j.id}`, title: j.overdueMin ? t('wake_overdue_tip', j.overdueMin) : t('parked_tip') },
+      icon('clock', 'ic xs'), j.overdueMin ? h('span', { class: 'badge warn' }, t('wake_overdue')) : null,
+      h('span', { class: 'aj-s' }, t('parked_wakes', j.wakeAt ? fmtTime(j.wakeAt / 1000) : '?')), h('span', { class: 'aj-t' }, j.title || j.project))),
+    // manual progress checks ("Check progress"): running, or their short report (opens the full one)
+    ...checks.map((c) => (c.state === 'done'
+      ? h('li', { class: 'aj check done', 'data-key': `ac-${c.id}-${c.at}` },
+        icon('check', 'ic xs'),
+        h('button', { class: 'aj-btn', type: 'button', 'data-act': 'check-report', 'data-id': c.id, title: `${t('check_title')} · ${c.title}${c.outcome ? ` · ${t('check_outcome')[c.outcome] || c.outcome}` : ''}\n${c.short}\n${t('check_open')}` },
+          h('span', { class: 'aj-s' }, `${c.title} ·`), h('span', { class: 'aj-t' }, c.short || '—')))
+      : h('li', { class: 'aj check busy', 'data-key': `ac-${c.id}-${c.at}`, title: c.note || '' }, h('span', { class: 'spin sm' }),
+        h('span', { class: 'aj-t' }, c.state === 'waiting' ? t('check_waiting', c.title) : t('checking', c.title))))),
+  ].filter(Boolean);
+  return h('ul', { class: 'acct-jobs' }, items);
+}
+// A worker's tier (1 / 2 / 3) and its "Check progress" button; the leader's switch "Leader takes jobs too".
+function tierSeg(a) {
+  return h('div', { class: 'seg tier', role: 'radiogroup', 'aria-label': t('tier'), title: t('tier_tip') },
+    [1, 2, 3].map((n) => h('button', { class: 'seg-btn', type: 'button', role: 'radio', 'aria-checked': String(a.tier === n), 'aria-label': t('tier_n', n), tabindex: a.tier === n ? '0' : '-1', 'data-act': 'tier', 'data-name': a.name, 'data-n': String(n) }, String(n))));
+}
+function workerControls(a) {
+  if (!a.worker || a.status === 'login') return null;
+  return h('div', { class: 'acct-ctl', 'data-key': `actl-${a.name}` },
+    h('span', { class: 'ctl-k' }, t('tier')), tierSeg(a),
+    h('button', { class: 'btn sm push', type: 'button', 'data-act': 'check-progress', 'data-name': a.name, title: t('check_progress_tip') }, icon('refresh', 'ic sm'), t('check_progress')));
+}
+function leaderSwitch(a) {
+  if (!a.desktop || isCodex(a)) return null;
+  return h('div', { class: 'acct-opt', 'data-key': `aopt-${a.name}`, title: t('takes_jobs_d') },
+    h('span', {}, t('takes_jobs')), switchBtn(a.takesJobs, 'takes-jobs', t('takes_jobs'), a.name));
+}
+// The worker's latest health check (a project's health_checks and workspace trust): one quiet line when it is fine.
+function healthLine(a) {
+  const hl = a.health;
+  if (!a.worker || isCodex(a) || (!hl && !a.healthBusy)) return null;
+  if (a.healthBusy) return h('div', { class: 'acct-health busy', 'data-key': `ah-${a.name}` }, icon('refresh', 'ic xs'), h('span', {}, t('health_checking')));
+  const ok = !hl.problems.length;
+  return h('div', { class: `acct-health ${ok ? 'ok' : 'bad'}`, 'data-key': `ah-${a.name}`, title: t('health_tip', hl.project, fmtTime(hl.at / 1000)) },
+    icon(ok ? 'check' : 'alert', 'ic xs'), h('span', { class: 'aj-t' }, ok ? t('health_ok') : t('health_bad', hl.problems.join(', '))), h('span', { class: 'aj-s' }, `· ${hl.project}`));
+}
 function accountCard(a, { overview = false } = {}) {
   const s = stateOf(a);
+  const codex = isCodex(a);
   const foot = [
-    !overview && !a.desktop ? modelChip(a) : null,
-    a.status === 'login' ? h('button', { class: 'btn sm', type: 'button', 'data-act': 'signin', 'data-name': a.name }, icon('login', 'ic sm'), t('sign_in')) : null,
+    !overview && !a.desktop ? (codex ? codexModel(a) : modelChip(a)) : null,
+    // a Codex login is made in a terminal (CODEX_HOME=… codex login), never by running Claude Code in its folder
+    a.status === 'login' && !codex ? h('button', { class: 'btn sm', type: 'button', 'data-act': 'signin', 'data-name': a.name }, icon('login', 'ic sm'), t('sign_in')) : null,
     ageLine(a),
   ].filter(Boolean);
   return h('article', { class: `card acct is-${s}`, 'data-key': `a-${a.name}`, 'aria-label': a.label },
@@ -519,10 +633,14 @@ function accountCard(a, { overview = false } = {}) {
         h('div', { class: 'acct-line' },
           h('span', { class: 'email selectable', title: a.label }, a.label),
           a.desktop && !overview ? h('span', { class: 'tag accent' }, t('leader_tag')) : null,
-          a.plan ? h('span', { class: 'tag' }, cap(a.plan)) : null),
+          codex ? h('span', { class: 'tag codex' }, a.plan ? cap(a.plan) : 'Codex') : a.plan ? h('span', { class: 'tag' }, cap(a.plan)) : null),
         statusLine(a)),
       overview ? null : h('button', { class: 'icon-btn', type: 'button', 'data-act': 'more', 'data-name': a.name, 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': t('more_actions', a.label), title: t('more_actions', a.label) }, icon('more'))),
+    overview ? null : acctJobs(a),
+    overview ? null : healthLine(a),
     usageBlock(a, overview ? 'overview' : 'accounts'),
+    leaderSwitch(a),
+    overview ? null : workerControls(a),
     foot.length ? h('div', { class: 'acct-foot' }, foot) : null);
 }
 
@@ -564,9 +682,10 @@ function workerLine(account, model) {
 function runCard(r) {
   const waiting = r.status === 'waiting';
   return h('article', { class: `card job ${waiting ? 'waiting' : ''}`, 'data-key': `r-${r.id}` },
-    h('div', { class: 'job-top' }, h('span', { class: 'job-proj', title: r.cwd }, r.project), r.thread ? h('span', { class: 'tag', title: r.thread }, r.thread) : null),
+    h('div', { class: 'job-top' }, h('span', { class: 'job-proj', title: r.cwd }, r.project), r.thread ? h('span', { class: 'tag', title: r.thread }, r.thread) : null,
+      r.priority && r.priority !== 'normal' ? h('span', { class: `tag prio-${r.priority}`, title: t('prio')[r.priority] }, t('prio')[r.priority]) : null),
     r.title ? h('div', { class: 'job-title selectable', title: r.title }, r.title) : null,
-    workerLine(r.account, r.model || acctOf(r.account)?.model || ''),
+    workerLine(r.account || r.ranOn, r.model || acctOf(r.account || r.ranOn)?.model || ''),
     waiting && r.waitingUntil ? h('div', { class: 'job-meta' }, t('waiting_until', fmtTime(r.waitingUntil)), ' ', h('b', { class: 'num', 'data-cd': r.waitingUntil }, fmtCountdown(r.waitingUntil))) : null,
     liveRow(r.lastLine),
     h('div', { class: 'progress', 'aria-hidden': 'true' }));
@@ -590,23 +709,25 @@ function recentItems() {
   }));
   const runs = (S.recent || []).map((r) => ({
     key: `w-${r.at}-${r.project}-${r.thread}`, ok: r.ok, state: r.ok ? 'finished' : 'failed',
-    title: r.title || r.thread || r.project, project: r.project, account: r.account, at: r.at,
+    title: r.title || r.thread || r.project, project: r.project, account: r.account, at: r.at, flags: r.flags || [],
   }));
   return [...takeovers, ...runs].sort((a, b) => b.at - a.at).slice(0, 5);
 }
 function recentRow(it) {
   const who = it.account ? labelOf(it.account) : '';
   const meta = [it.project, who].filter(Boolean).join(' · ');
-  return h('li', { class: `recent-row ${it.ok ? 'ok' : 'bad'}`, 'data-key': it.key, title: `${it.title}\n${meta} · ${t(it.state)}` },
-    icon(it.ok ? 'check' : 'alert', 'ic sm'), h('span', { class: 'sr' }, t(it.state)),
+  // flags Relay raised that the leader has not resolved yet (relay_ack clears them): a warning badge
+  const flagged = it.flags && it.flags.length ? t('flagged', it.flags.join(', ')) : '';
+  return h('li', { class: `recent-row ${it.ok ? (flagged ? 'flagged' : 'ok') : 'bad'}`, 'data-key': it.key, title: `${it.title}\n${meta} · ${t(it.state)}${flagged ? `\n${flagged}` : ''}` },
+    icon(it.ok && !flagged ? 'check' : 'alert', 'ic sm'), h('span', { class: 'sr' }, flagged ? `${t(it.state)}. ${flagged}` : t(it.state)),
     h('span', { class: 'recent-title' }, it.title),
     meta ? h('span', { class: 'recent-meta' }, meta) : null,
     it.at ? h('time', { class: 'num', 'data-age': it.at, datetime: new Date(it.at).toISOString() }, fmtAge(it.at)) : null);
 }
 
 /* ---------- setup checklist ---------- */
-function switchBtn(on, act, label) {
-  return h('button', { class: 'switch', type: 'button', role: 'switch', 'aria-checked': String(!!on), 'aria-label': label, 'data-act': act }, h('i'));
+function switchBtn(on, act, label, name = null) {
+  return h('button', { class: 'switch', type: 'button', role: 'switch', 'aria-checked': String(!!on), 'aria-label': label, 'data-act': act, 'data-name': name }, h('i'));
 }
 function setupCard() {
   const st = setupStatus();
@@ -695,7 +816,8 @@ function overviewPanel() {
   const recent = recentItems();
   if (st.complete || running.length || recent.length) {
     out.push(h('section', { class: 'section', 'aria-labelledby': 'h-act', 'data-key': 'activity' },
-      h('div', { class: 'section-head' }, h('h2', { class: 'label', id: 'h-act' }, t('activity')), running.length ? h('span', { class: 'count num' }, String(running.length)) : null),
+      h('div', { class: 'section-head' }, h('h2', { class: 'label', id: 'h-act' }, t('activity')), running.length ? h('span', { class: 'count num' }, String(running.length)) : null,
+        h('button', { class: 'btn sm push', type: 'button', 'data-act': 'dispatch', title: t('dispatch_title') }, icon('plus', 'ic sm'), t('dispatch'))),
       running.length ? h('div', { class: 'stack', 'data-key': 'running' }, running) : h('div', { class: 'card empty', 'data-key': 'idle' }, icon('check', 'ic'), h('p', {}, t('idle'))),
       recent.length ? h('div', { class: 'recent', 'data-key': 'recent' }, h('h3', { class: 'sublabel' }, t('recent')), h('ul', { class: 'card list' }, recent.map(recentRow))) : null));
   }
@@ -749,10 +871,27 @@ function settingsView() {
         h('div', { class: 'row' }, h('div', { class: 'row-text' }, h('b', {}, t('jobs_folder')), h('small', {}, t('jobs_folder_d'))),
           switchBtn(S.settings.folderLock === true, 'folder-lock', t('jobs_folder'))),
         h('div', { class: 'row col' }, h('div', { class: 'row-text' }, h('b', {}, t('jobs_per')), h('small', {}, t('jobs_per_d'))),
-          h('div', { class: 'seg wide', role: 'radiogroup', 'aria-label': t('jobs_per') }, [1, 2, 3, 0].map((n) => {
-            const cur = Number.isInteger(S.settings.jobsPerWorker) ? S.settings.jobsPerWorker : 1;
+          h('div', { class: 'seg wide', role: 'radiogroup', 'aria-label': t('jobs_per') }, [1, 2, 3].map((n) => {
+            const v = S.settings.jobsPerWorker; // never more than 3 (0, the old "no limit", runs 3 too)
+            const cur = Number.isInteger(v) && v >= 1 ? Math.min(v, 3) : 3;
             return h('button', { class: 'seg-btn', type: 'button', role: 'radio', 'aria-checked': String(cur === n), tabindex: cur === n ? '0' : '-1', 'data-act': 'jobs-per', 'data-n': String(n) }, n ? String(n) : t('jobs_any'));
+          }))),
+        // how long a background job may wait for a worker or its folder (0 = no limit)
+        h('div', { class: 'row col' }, h('div', { class: 'row-text' }, h('b', {}, t('set_bgwait')), h('small', {}, t('bgwait_d'))),
+          h('div', { class: 'seg wide', role: 'radiogroup', 'aria-label': t('set_bgwait') }, [0, 60, 240, 720].map((m) => {
+            const v = Number(S.settings.backgroundMaxWaitMin) || 0;
+            const on = [0, 60, 240, 720].includes(v) ? v === m : m === 0;
+            return h('button', { class: 'seg-btn', type: 'button', role: 'radio', 'aria-checked': String(on), tabindex: on ? '0' : '-1', 'data-act': 'bg-wait', 'data-n': String(m) }, m ? t('bgwait_h', m / 60) : t('bgwait_none'));
           }))))),
+      // keep the Mac awake for parked jobs' wakes (macOS only: core/awake.js)
+      S.platform === 'darwin' ? group('wake', t('set_wake'), h('div', { class: 'card list' },
+        h('div', { class: 'row' }, h('div', { class: 'row-text' }, h('b', {}, t('wake_awake')), h('small', {}, t('wake_awake_d', Number(S.settings.preventSleepMinutes ?? 10)))),
+          switchBtn(S.settings.preventSleepForWakes === true, 'prevent-sleep', t('wake_awake'))),
+        S.settings.preventSleepForWakes === true ? h('div', { class: 'row col' }, h('div', { class: 'row-text' }, h('b', {}, t('wake_before'))),
+          h('div', { class: 'seg wide', role: 'radiogroup', 'aria-label': t('wake_before') }, [5, 10, 15, 30].map((m) => {
+            const on = Number(S.settings.preventSleepMinutes ?? 10) === m;
+            return h('button', { class: 'seg-btn', type: 'button', role: 'radio', 'aria-checked': String(on), tabindex: on ? '0' : '-1', 'data-act': 'sleep-min', 'data-n': String(m) }, t('min_n', m));
+          }))) : null)) : null,
       group('presets', t('set_presets'), h('div', { class: 'card list rules' },
         h('p', { class: 'rules-d' }, t('presets_d')),
         (Array.isArray(S.settings.presets) ? S.settings.presets : []).map((p, i) => h('div', { class: 'rule-row', 'data-key': `preset:${p.id}` },
@@ -900,10 +1039,12 @@ function modelMenu(anchor, a) {
   ].filter(Boolean), t('model_label'));
 }
 function moreMenu(anchor, a) {
+  const codex = isCodex(a); // never the leader, and no Claude sign-in in its folder
   openMenu(anchor, [
-    a.desktop ? null : { label: t('set_leader'), icon: 'monitor', run: guard(() => api('/api/accounts/desktop', { name: a.name })) },
+    a.desktop || codex ? null : { label: t('set_leader'), icon: 'monitor', run: guard(() => api('/api/accounts/desktop', { name: a.name })) },
     { label: t('refresh_usage'), icon: 'refresh', run: guard(() => { S.manual[a.name] = Date.now(); schedule(); return api('/api/usage/refresh', { name: a.name }); }) },
-    { label: t('signin_again'), icon: 'login', run: guard(() => api('/api/accounts/login', { name: a.name })) },
+    codex ? null : { label: t('signin_again'), icon: 'login', run: guard(() => api('/api/accounts/login', { name: a.name })) },
+    !a.worker || codex ? null : { label: t('check_health'), icon: 'check', run: guard(() => api('/api/health', { name: a.name })) },
     'sep',
     { label: t('remove'), icon: 'trash', danger: true, run: guard(() => removeAccount(a)) },
   ].filter(Boolean), t('more_actions', a.label));
@@ -978,7 +1119,7 @@ function presetSheet(i) {
     const auto = h('input', { type: 'checkbox' });
     auto.checked = cur.auto !== false;
     const save = guard(async () => {
-      const next = { id: idIn.value, name: nameIn.value, text: textIn.value, keywords: kwIn.value.split(','), auto: auto.checked };
+      const next = { ...cur, id: idIn.value, name: nameIn.value, text: textIn.value, keywords: kwIn.value.split(','), auto: auto.checked }; // keeps fields the sheet does not edit (projects)
       const all = i >= 0 ? list.map((p, k) => (k === i ? next : p)) : [...list, next];
       S.settings = await api('/api/settings', { presets: all });
       d.close();
@@ -994,6 +1135,111 @@ function presetSheet(i) {
       ...field(t('preset_id'), idIn), ...field(t('preset_name'), nameIn), ...field(t('preset_text'), textIn), ...field(t('preset_kw'), kwIn),
       h('label', { class: 'check' }, auto, h('span', {}, t('preset_auto_label'))),
       actions(i >= 0 ? btn(t('preset_delete'), del, 'danger') : null, btn(t('cancel'), () => d.close()), btn(t('save'), save, 'primary')));
+  });
+}
+
+// "Dispatch a job": starts a background job exactly like relay_start (the server runs the same checks; a refusal is
+// shown in the dialog). The job then shows under Activity and any Claude window collects it with relay_poll (cwd).
+const MODELS = ['haiku', 'sonnet', 'opus', 'fable'];
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+async function dispatchSheet() {
+  let folders = [];
+  try { folders = (await api('/api/projects', {})).folders || []; } catch { /* type it */ }
+  sheet((d) => {
+    d.classList.add('wide', 'dispatch');
+    const field = (label, el, ...extra) => { el.id = el.id || `df${++sheetId}`; return h('div', { class: 'field' }, h('label', { class: 'field-label', for: el.id }, label), el, ...extra); };
+    const select = (opts, value = '') => { const el = h('select', {}, opts.map(([v, l]) => h('option', { value: v }, l))); el.value = value; return el; };
+    const task = h('textarea', { rows: '6', placeholder: t('f_task_ph'), spellcheck: 'false' });
+    const cwd = h('input', { type: 'text', value: folders[0] || '', placeholder: '/path/to/project', autocomplete: 'off', spellcheck: 'false' });
+    const recent = folders.length > 1 ? select([['', t('f_recent')], ...folders.map((f) => [f, f])]) : null;
+    const choose = S.canPickFolder ? btn(t('f_choose'), guard(async () => { const r = await api('/api/pick-folder', {}); if (r.cwd) { cwd.value = r.cwd; info(); } })) : null;
+    const threads = h('datalist', { id: `dl-th${++sheetId}` });
+    const thread = h('input', { type: 'text', list: threads.id, autocomplete: 'off', spellcheck: 'false', placeholder: 'auth-refactor' });
+    const title = h('input', { type: 'text', autocomplete: 'off', maxlength: '60' });
+    const hasCodex = S.accounts.some((a) => isCodex(a) && a.worker && a.status !== 'login');
+    const agent = select([['claude', 'Claude'], ...(hasCodex ? [['codex', 'Codex']] : [])], 'claude');
+    const models = h('datalist', { id: `dl-m${++sheetId}` }, MODELS.map((m) => h('option', { value: m })));
+    const model = h('input', { type: 'text', list: models.id, autocomplete: 'off', spellcheck: 'false', placeholder: t('model_default') });
+    const effort = select([['', t('effort_default')], ...EFFORTS.map((e) => [e, e])]);
+    const ro = h('input', { type: 'checkbox' });
+    const scope = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: 'src/auth, docs' });
+    const scopeHint = h('p', { class: 'tip', hidden: true }, t('f_scope_req'));
+    const cwdHint = h('p', { class: 'tip warn', hidden: true }, t('folder_missing'));
+    const prio = select([['normal', t('prio_normal')], ['high', t('prio_high')], ['low', t('prio_low')]], 'normal');
+    const target = h('select', {});
+    const fillTargets = () => {
+      const keep = target.value;
+      const who = S.accounts.filter((a) => a.worker && a.status !== 'login' && (a.provider || 'claude') === agent.value);
+      target.replaceChildren(h('option', { value: '' }, t('target_auto')), ...who.map((a) => h('option', { value: a.name }, a.desktop ? t('target_leader', a.label) : a.label)));
+      target.value = who.some((a) => a.name === keep) ? keep : '';
+    };
+    fillTargets();
+    agent.addEventListener('change', () => { fillTargets(); if (agent.value === 'codex') ro.checked = true; ro.disabled = agent.value === 'codex'; syncScope(); });
+    let requireScope = false;
+    const syncScope = () => { scopeHint.hidden = !requireScope || ro.checked; };
+    ro.addEventListener('change', syncScope);
+    let seq = 0;
+    const info = async () => {
+      const n = ++seq;
+      const v = cwd.value.trim();
+      if (!v) { cwdHint.hidden = true; return; }
+      try {
+        const r = await api('/api/project-info', { cwd: v });
+        if (n !== seq) return;
+        cwdHint.hidden = !!r.exists;
+        requireScope = !!r.requireScope;
+        threads.replaceChildren(...(r.threads || []).map((x) => h('option', { value: x })));
+        syncScope();
+      } catch { /* checked again on submit */ }
+    };
+    let timer = 0;
+    cwd.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(info, 300); });
+    recent?.addEventListener('change', () => { if (recent.value) { cwd.value = recent.value; recent.value = ''; info(); } });
+    info();
+    const err = h('p', { class: 'form-err selectable', role: 'alert', hidden: true });
+    const goBtn = btn(t('dispatch_go'), null, 'primary');
+    const go = async () => {
+      err.hidden = true;
+      goBtn.disabled = true;
+      try {
+        const r = await api('/api/jobs/start', {
+          task: task.value, cwd: cwd.value.trim(), thread: thread.value.trim(), title: title.value.trim(), agent: agent.value, model: model.value.trim(), effort: effort.value,
+          read_only: ro.checked, scope: scope.value, priority: prio.value, account: target.value,
+        });
+        d.close();
+        toast(t('dispatched', r.id));
+      } catch (e) {
+        err.textContent = e.message;
+        err.hidden = false;
+      } finally { goBtn.disabled = false; }
+    };
+    goBtn.addEventListener('click', go);
+    d.append(h('h2', {}, t('dispatch_title')), h('p', {}, t('dispatch_sub')),
+      field(t('f_task'), task),
+      field(t('f_cwd'), cwd, h('div', { class: 'cwd-acts' }, recent, choose), cwdHint),
+      h('div', { class: 'form-grid' },
+        field(t('f_thread'), thread, threads), field(t('f_title'), title),
+        field(t('f_agent'), agent), field(t('f_target'), target),
+        field(t('f_model'), model, models), field(t('f_effort'), effort),
+        field(t('f_prio'), prio), field(t('f_scope'), scope)),
+      scopeHint,
+      h('label', { class: 'check' }, ro, h('span', {}, t('f_ro'))),
+      h('p', { class: 'tip' }, t('f_thread_hint')),
+      err,
+      actions(btn(t('cancel'), () => d.close()), goBtn));
+    setTimeout(() => task.focus(), 30);
+  });
+}
+// A manual progress check's full report (the job's latest report), opened from a worker card.
+async function checkReportSheet(id) {
+  const r = await api('/api/jobs/report', { id });
+  const mc = (r.manualChecks || []).slice(-1)[0] || null;
+  sheet((d) => {
+    d.classList.add('wide');
+    d.append(h('h2', {}, `${t('check_title')} · ${r.title || r.project}`),
+      mc && mc.short ? h('p', { class: 'selectable' }, mc.short) : null,
+      h('pre', { class: 'report selectable' }, r.report || '—'),
+      actions(btn(t('close'), () => d.close(), 'primary')));
   });
 }
 
@@ -1115,6 +1361,29 @@ const ACT = {
     try { S.settings = await api('/api/settings', { language: l }); } catch (e) { S.settings = before; setLang(before.language); render(); throw e; }
   }),
   'remove-all': () => openRemoveAll(),
+  // the leader's switch "Leader takes jobs too"
+  'takes-jobs': guard(async (el) => { const a = nameOf(el); if (a) await api('/api/accounts/takes-jobs', { name: a.name, on: !a.takesJobs }); }),
+  tier: guard(async (el) => {
+    const a = nameOf(el);
+    const n = Number(el.dataset.n);
+    if (!a || a.tier === n) return;
+    a.tier = n; // shown at once; the server's answer follows through the 'accounts' event
+    render();
+    await api('/api/accounts/tier', { name: a.name, tier: n });
+  }),
+  'check-progress': guard(async (el) => {
+    const a = nameOf(el);
+    if (!a) return;
+    const r = await api('/api/accounts/check-progress', { name: a.name });
+    if (r.none) toast(t('check_none', a.label));
+    else if (r.woken.length) toast(t('check_started', r.woken.length));
+    for (const f of r.failed || []) toast(`${f.id}: ${f.why}`);
+  }),
+  'check-report': guard((el) => checkReportSheet(el.dataset.id)),
+  dispatch: guard(() => dispatchSheet()),
+  'bg-wait': guard(async (el) => { S.settings = await api('/api/settings', { backgroundMaxWaitMin: Number(el.dataset.n) }); render(); }),
+  'prevent-sleep': guard(async () => { S.settings = await api('/api/settings', { preventSleepForWakes: S.settings.preventSleepForWakes !== true }); render(); }),
+  'sleep-min': guard(async (el) => { S.settings = await api('/api/settings', { preventSleepMinutes: Number(el.dataset.n) }); render(); }),
 };
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-act]');
@@ -1142,7 +1411,7 @@ function applyState(s) {
   Object.assign(S, {
     accounts: s.accounts, jobs: s.jobs, runs: s.runs || [], recent: s.recent || [], connect: s.connect, leader: s.leader, desktop: s.desktop || S.desktop,
     cli: s.cli || S.cli, settings: s.settings || {}, login: s.login, claudeProblem: s.claudeProblem, canAutoStart: s.canAutoStart, conflicts: s.conflicts || [],
-    platform: s.platform || S.platform,
+    platform: s.platform || S.platform, canPickFolder: !!s.canPickFolder,
   });
   setLang(S.settings.language);
 }
@@ -1163,6 +1432,7 @@ async function boot() {
     else if (ev.type === 'login') { S.login = ev.login; renderLogin(); return; }
     else if (ev.type === 'notify') {
       const n = ev.notice;
+      if (n.kind === 'job' && n.check) { toast(t('n_check', n)); return; } // a manual progress check ended
       if (NOTICES.includes(n.kind)) toast(t(`n_${n.kind.replace('-', '_')}`, { ...n, job: n.job && { ...n.job, account: n.job.account && labelOf(n.job.account) }, origin: n.origin ? labelOf(n.origin) : '', to: labelOf(n.to), account: labelOf(n.account) }));
       return;
     } else return;

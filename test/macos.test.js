@@ -401,7 +401,7 @@ test('every source file parses (main.js and the panel are not loaded by the othe
 });
 
 // ---- several workers in one folder ----
-test('by default several jobs run in one folder at once, one per free worker; with every worker busy a job waits', async () => {
+test('several jobs run in one folder at once, one per free worker (jobs per worker 1); with every worker busy a job waits', async () => {
   const root = sandbox();
   process.env.FAKE_DELAY_MS = '1500';
   process.env.RELAY_BUSY_POLL_MS = '100';
@@ -411,7 +411,8 @@ test('by default several jobs run in one folder at once, one per free worker; wi
     const { runWorker } = require(`${SRC}/core/workers`);
     store.save([['lead', true], ['w1'], ['w2']].map(([n, desktop]) => ({ ...store.newAccount(n, path.join(root, 'home', 'accounts', n), `${n}@x.com`), desktop: !!desktop })));
     assert.equal(store.loadSettings().folderLock, false);
-    assert.equal(store.loadSettings().jobsPerWorker, 1);
+    assert.equal(store.loadSettings().jobsPerWorker, 3, 'a new install runs up to 3 jobs per worker');
+    store.saveSettings({ jobsPerWorker: 1 }); // this test is about one job per worker
     const cwd = path.join(root, 'proj');
     fs.mkdirSync(cwd, { recursive: true });
     let maxRunning = 0;

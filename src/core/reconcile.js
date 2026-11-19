@@ -4,6 +4,7 @@
 //
 //  1. adoptOrphans: a login folder under ~/.relay/accounts that the registry does not list (accounts.json lost,
 //     damaged beyond its backup, or edited by hand) is checked with Claude Code itself and listed again.
+//     Codex homes (~/.relay/codex, any Codex account's folder) are never scanned: Codex accounts are added by hand.
 //  2. recheckSignedOut: an account flagged "sign in needed" is tried again. If Claude Code still accepts its
 //     login (the usage reading works), the flag is cleared; nobody has to sign in again for nothing.
 // Neither reads or copies any credential: both only ask Claude Code about a login folder.
@@ -13,12 +14,17 @@ const path = require('path');
 const store = require('./store');
 const usage = require('./usage');
 const { authStatus } = require('./claude');
+const { backendFor } = require('./backends');
 
 async function adoptOrphans() {
   const dirs = [];
   for (const root of store.accountRoots()) {
+    if (store.isCodexArea(root)) continue; // Codex homes are never probed with `claude`
     try {
-      for (const d of fs.readdirSync(root, { withFileTypes: true })) if (d.isDirectory()) dirs.push({ name: d.name, dir: path.join(root, d.name) });
+      for (const d of fs.readdirSync(root, { withFileTypes: true })) {
+        const dir = path.join(root, d.name);
+        if (d.isDirectory() && !store.isCodexArea(dir)) dirs.push({ name: d.name, dir });
+      }
     } catch { /* this root does not exist (yet) */ }
   }
   const known = new Set(store.load().map((a) => path.resolve(a.configDir).toLowerCase()));
@@ -41,7 +47,9 @@ async function adoptOrphans() {
 async function recheckSignedOut() {
   const revived = [];
   for (const a of store.load().filter((x) => x.needsLogin)) {
-    const info = await authStatus(a);
+    let backend;
+    try { backend = backendFor(a); } catch { continue; } // a provider this version of Relay cannot check
+    const info = await backend.loginStatus(a);
     if (!info.loggedIn) continue; // really signed out (no credentials in its folder)
     await usage.refresh(a.name, { recheck: true });
     const now = store.get(a.name);

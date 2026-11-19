@@ -12,6 +12,21 @@ function looksLikeLimit(text) {
   return LIMIT_RE.test(text) && !/context limit/i.test(text);
 }
 
+// The session's context is full: Claude Code says "Prompt is too long" (also "prompt is too long: N tokens > M maximum";
+// its own check also accepts "input is too long for requested model"; older builds: "Context limit reached") — strings
+// in the 2.1.32x CLI. The API's own wording is "input length and `max_tokens` exceed context limit".
+const CONTEXT_RE = /(prompt is too long|input is too long for requested model|context limit reached|exceeds? (?:the )?context (?:window|limit)|context window exceeded|context_length_exceeded|input length and [`']?max_tokens[`']? exceed)/i;
+function looksLikeContextLimit(text) {
+  return CONTEXT_RE.test(String(text || ''));
+}
+
+// `--resume <id>` found no transcript of that session in the account's projects folder (Claude Code 2.1.32x:
+// "No conversation found with session ID: <id>").
+const MISSING_SESSION_RE = /no conversation found with session id/i;
+function looksLikeMissingSession(text) {
+  return MISSING_SESSION_RE.test(String(text || ''));
+}
+
 function looksLikeAuthError(text) {
   return AUTH_RE.test(text);
 }
@@ -38,4 +53,4 @@ function parseReset(text, nowSec = Date.now() / 1000) {
   return t.getTime() / 1000;
 }
 
-module.exports = { looksLikeLimit, looksLikeAuthError, parseReset };
+module.exports = { looksLikeLimit, looksLikeAuthError, looksLikeContextLimit, looksLikeMissingSession, parseReset };

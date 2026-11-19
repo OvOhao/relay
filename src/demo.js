@@ -22,7 +22,9 @@ function seedDemo({ claudeCmd = [process.execPath, path.join(__dirname, '..', 't
     FAKE_SIGNED_OUT: 'work', // shows as "sign-in needed"
     FAKE_USAGE: JSON.stringify({ you: [62, 3.1, 41, 150], alex: [18, 4.2, 23, 150], lab: [100, 2.2, 74, 90] }), // what /usage says for each
     RELAY_CLAUDE_CMD: JSON.stringify(claudeCmd),
+    RELAY_CODEX_CMD: JSON.stringify([process.execPath, path.join(__dirname, '..', 'test', 'fake-codex.js')]),
   });
+  fs.mkdirSync(path.join(root, 'home', 'codex', 'pro'), { recursive: true });
   const store = require('./core/store');
   const mk = (name, email, plan, extra = {}) => ({ ...store.newAccount(name, path.join(root, 'home', 'accounts', name), email), plan, ...extra });
   store.save([
@@ -30,6 +32,7 @@ function seedDemo({ claudeCmd = [process.execPath, path.join(__dirname, '..', 't
     mk('alex', 'alex@example.com', 'max', { model: 'sonnet' }),
     mk('lab', 'lab@example.com', 'max', { model: 'haiku', blockedUntil: Date.now() / 1000 + 2.2 * 3600, blockedReason: 'five_hour' }),
     mk('work', 'work@example.com', 'pro', { needsLogin: true }),
+    { ...store.newAccount('codex-team', path.join(root, 'home', 'codex', 'pro'), ''), provider: 'codex', plan: 'pro', model: 'gpt-6-astra' },
   ]);
   // numbers the panel would have read from `claude -p /usage`, a running worker and who the leader is
   const now = Date.now() / 1000;
@@ -51,7 +54,17 @@ function seedDemo({ claudeCmd = [process.execPath, path.join(__dirname, '..', 't
   memory.appendLedger(path.join(root, 'thesis-code'), { at: ago(12), thread: 'tests', account: 'alex@example.com', title: 'Write unit tests for the token parser', summary: 'demo', ok: true });
   memory.appendLedger(path.join(root, 'relay-site'), { at: ago(47), thread: 'promo-site', account: 'lab@example.com', title: 'Build the promotional website', summary: 'demo', ok: true });
   memory.appendLedger(path.join(root, 'thesis-code'), { at: ago(190), thread: 'ci', account: 'alex@example.com', title: 'Fix the flaky CI job on Windows', summary: 'demo', ok: false });
-  console.log(`demo project folder: ${path.join(root, 'project')}`);
+  // a parked background job on alex (wakes in 40 min; "Check progress" on alex's card wakes it now), and lab at tier 2
+  fs.mkdirSync(path.join(root, 'home', 'jobs'), { recursive: true });
+  const project = path.join(root, 'project');
+  fs.writeFileSync(path.join(root, 'home', 'jobs', 'demo-park1.json'), JSON.stringify({
+    id: 'demo-park1', state: 'parked', request: { task: 'Train the baseline model and report the final loss', cwd: project, thread: 'baseline' }, cwd: project, project: 'project',
+    title: 'Train the baseline model', provider: 'claude', priority: 'normal', createdAt: Date.now() - 50 * 60e3, pid: null, wakes: 0,
+    account: 'alex', sessionId: 'sess-demo', wakeAt: Date.now() + 40 * 60e3, parkedAt: Date.now() - 20 * 60e3, parkSeenAt: Date.now(), parkCheck: 'whether training finished',
+    report: 'Launched training (pid 4242), verified it runs. Logs: /tmp/train.log.',
+  }));
+  store.update('lab', { tier: 2 });
+  console.log(`demo project folder: ${project}`);
   return root;
 }
 

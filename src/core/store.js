@@ -14,9 +14,20 @@ const home = () => process.env.RELAY_HOME || path.join(os.homedir(), '.relay');
 // path, so moving a folder would sign that account out).
 const accountRoots = () => {
   const extra = loadSettings().extraAccountRoots;
-  return [path.join(home(), 'accounts'), ...(Array.isArray(extra) ? extra.filter((d) => typeof d === 'string' && path.isAbsolute(d)) : [])];
+  return [path.join(home(), 'accounts'), ...(Array.isArray(extra) ? extra.filter((d) => typeof d === 'string' && path.isAbsolute(d) && !isCodexArea(d)) : [])];
 };
-const ownsConfigDir = (dir) => accountRoots().some((r) => path.resolve(dir).startsWith(path.resolve(r) + path.sep));
+// Codex homes (CODEX_HOME folders) live apart, by default in ~/.relay/codex: they are registered by hand
+// (`relay add-codex`), never probed with `claude`, never synced with Claude settings and never deleted by Relay.
+const codexRoot = () => path.join(home(), 'codex');
+const within = (p, root) => { const a = path.resolve(p); const r = path.resolve(root); return a === r || a.startsWith(r + path.sep); };
+function isCodexArea(dir) {
+  if (!dir) return false;
+  if (within(dir, codexRoot())) return true;
+  let accounts = [];
+  try { accounts = readJson(accountsFile(), []); } catch { /* unreadable registry: only the codex root counts */ }
+  return accounts.some((a) => a && a.provider === 'codex' && a.configDir && (within(dir, a.configDir) || within(a.configDir, dir)));
+}
+const ownsConfigDir = (dir) => !isCodexArea(dir) && accountRoots().some((r) => path.resolve(dir).startsWith(path.resolve(r) + path.sep));
 const accountsFile = () => path.join(home(), 'accounts.json');
 const settingsFile = () => path.join(home(), 'settings.json');
 const nowSec = () => Date.now() / 1000;
@@ -76,6 +87,7 @@ function update(name, fields) {
 
 const newAccount = (name, configDir, email = '') => ({
   name, configDir, email, plan: '', blockedUntil: 0, blockedReason: '', needsLogin: false, lastUsed: 0, desktop: false,
+  provider: 'claude', // which CLI this account runs (see backends/); records saved without it are Claude's
   model: '', // default model for this account's worker runs; '' = whatever Claude Code defaults to
 });
 
@@ -86,8 +98,32 @@ const cleanModel = (m) => {
   const v = String(m == null ? '' : m).trim();
   return v === '' || MODEL_RE.test(v) ? v : null;
 };
+// A reasoning effort goes to Claude Code's own --effort flag; only the levels it lists are accepted.
+// Returns the cleaned level ('' = no preference) or null for anything else.
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+const cleanEffort = (e) => {
+  const v = String(e == null ? '' : e).trim().toLowerCase();
+  return v === '' || EFFORTS.includes(v) ? v : null;
+};
+
+// A job's priority: when jobs wait for a free worker, a freed slot goes to the highest priority, then the oldest.
+// Returns the cleaned level ('' = normal) or null for anything else.
+const PRIORITIES = ['high', 'normal', 'low'];
+const PRIORITY_RANK = { high: 2, normal: 1, low: 0 };
+const cleanPriority = (p) => {
+  const v = String(p == null ? '' : p).trim().toLowerCase();
+  return v === '' ? 'normal' : PRIORITIES.includes(v) ? v : null;
+};
 
 const isReady = (a, now = nowSec()) => !a.needsLogin && a.blockedUntil <= now;
+// Who takes worker jobs: every account except the leader (the account this Claude window is signed in to), and the
+// leader too when its card's switch "Leader takes jobs too" is on (`takesJobs` on its record in accounts.json).
+const isWorker = (a) => !!a && (!a.desktop || a.takesJobs === true);
+// A worker's tier (Accounts panel, 1 / 2 / 3; 1 = most preferred, the default): at the same number of running jobs a
+// lower tier is picked first. Returns 1, 2 or 3, or null for anything else.
+const TIERS = [1, 2, 3];
+const cleanTier = (t) => { const n = Number(t); return TIERS.includes(n) ? n : null; };
+const tierOf = (a) => cleanTier(a && a.tier) || 1;
 const markLimited = (name, until, reason) => update(name, { blockedUntil: until, blockedReason: reason });
 const markNeedsLogin = (name) => update(name, { needsLogin: true });
 const markUsed = (name) => update(name, { lastUsed: nowSec() });
@@ -193,29 +229,51 @@ function cleanPresets(list) {
     if (out.some((x) => x.id === id)) return { presets: out, bad: `Two presets are called "${id}".` };
     const keywords = [...new Set((Array.isArray(p.keywords) ? p.keywords : String(p.keywords || '').split(','))
       .map((k) => String(k).trim().toLowerCase()).filter(Boolean))].slice(0, 60);
-    out.push({ id, name: name || id, text, keywords, auto: p.auto !== false });
+    // projects: absolute folders; the preset applies to every job whose folder is one of them or inside one.
+    const projects = [...new Set((Array.isArray(p.projects) ? p.projects : p.projects ? [p.projects] : []).map((d) => String(d).trim()).filter(Boolean))].slice(0, 50);
+    const rel = projects.find((d) => !path.isAbsolute(d));
+    if (rel) return { presets: out, bad: `Preset "${id}": projects must be absolute folders (got: ${rel.slice(0, 80)}).` };
+    out.push({ id, name: name || id, text, keywords, auto: p.auto !== false, ...(projects.length ? { projects: projects.map((d) => path.resolve(d)) } : {}) });
   }
   return { presets: out, bad: null };
 }
 
-// Which preset a job gets: the one asked for ('none' = none), else the first automatic one whose keyword appears in
-// the job's text (whole words for Latin keywords, anywhere for Chinese ones). Returns { preset } or { error }.
-function choosePreset(asked, text) {
+// Which presets a job gets: the presets whose `projects` contain the job's folder, plus the one asked for, or else the
+// first automatic one whose keyword appears in the job's text (whole words for Latin keywords, anywhere for Chinese
+// ones). 'none' = no preset at all. Returns { preset (the first), presets (all, in that order) } or { error }.
+function choosePreset(asked, text, cwd = '') {
   const presets = cleanPresets(loadSettings().presets).presets;
   const want = String(asked || '').trim().toLowerCase();
-  if (want === 'none') return { preset: null };
+  if (want === 'none') return { preset: null, presets: [] };
+  const here = cwd ? path.resolve(cwd) : '';
+  const inProject = (p) => !!here && (p.projects || []).some((d) => here === d || here.startsWith(d.endsWith(path.sep) ? d : d + path.sep));
+  const byProject = presets.filter(inProject);
+  let extra = null;
   if (want) {
-    const p = presets.find((x) => x.id === want);
-    return p ? { preset: p } : { error: `No task preset "${want}" (Relay settings has: ${presets.map((x) => x.id).join(', ') || 'none'}).` };
+    extra = presets.find((x) => x.id === want);
+    if (!extra) return { error: `No task preset "${want}" (Relay settings has: ${presets.map((x) => x.id).join(', ') || 'none'}).` };
+  } else {
+    const hay = String(text || '').toLowerCase();
+    const hit = (k) => (/^[\x00-\x7f]+$/.test(k) ? new RegExp(`(^|[^a-z0-9])${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^a-z0-9])`).test(hay) : hay.includes(k));
+    extra = presets.find((p) => p.auto && p.keywords.some(hit)) || null;
   }
-  const hay = String(text || '').toLowerCase();
-  const hit = (k) => (/^[\x00-\x7f]+$/.test(k) ? new RegExp(`(^|[^a-z0-9])${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^a-z0-9])`).test(hay) : hay.includes(k));
-  return { preset: presets.find((p) => p.auto && p.keywords.some(hit)) || null };
+  const all = [...byProject, ...(extra && !byProject.includes(extra) ? [extra] : [])];
+  return { preset: all[0] || null, presets: all };
 }
 
 // folderLock: one job at a time per project folder (off: jobs share a folder, and only jobs whose scopes overlap wait).
-// jobsPerWorker: how many jobs one worker account runs at once (0 = no limit); with every worker busy, a job waits.
-const DEFAULT_SETTINGS = { permissionMode: 'acceptEdits', extraArgs: '', allowedTools: [], deniedTools: [], folderLock: false, jobsPerWorker: 1, presets: [SECURITY_PRESET], claudePath: '', startAtLogin: true, language: 'en' };
+// jobsPerWorker: how many jobs one worker account runs at once, at most MAX_JOBS_PER_WORKER (3) whatever the setting
+// says (0, the old "no limit", means 3 too); with every worker busy, a job waits. See jobsPerWorker() below.
+// New installs run 3 at once; a settings file saved before this setting existed keeps the old 1 (see withLegacy).
+// handoffAt: a thread whose last context is at least this share of its model's window is handed off to a new session
+// before its next call (contextWindow: the window assumed when the stream does not report it).
+// preventSleepForWakes (off unless you turn it on in settings.json): from preventSleepMinutes before a parked job's
+// wake until that check ends, the job's runner holds `caffeinate -i -s -w <its pid>` so the Mac does not idle-sleep
+// (core/awake.js). Lid-closed sleep on battery cannot be prevented this way.
+// backgroundMaxWaitMin: how long a background job (relay_start, a parked job's wake, a job from the panel) waits for a
+// free worker or for its folder before it gives up with BUSY; 0 (the default) = it waits as long as it takes, showing
+// its place in line. relay_run (it blocks the window) keeps its own 30-minute limit.
+const DEFAULT_SETTINGS = { backgroundMaxWaitMin: 0, preventSleepForWakes: false, preventSleepMinutes: 10, handoffAt: 0.7, contextWindow: 200000, permissionMode: 'acceptEdits', extraArgs: '', allowedTools: [], deniedTools: [], folderLock: false, jobsPerWorker: 3, presets: [SECURITY_PRESET], claudePath: '', startAtLogin: true, language: 'en' };
 
 // Commands (and other tools) workers may use without asking: Claude Code permission rules, passed to every worker and
 // takeover run as --allowedTools. A rule is a tool name, optionally with a pattern in parentheses: "Bash(npm test)",
@@ -234,15 +292,37 @@ function cleanAllowedTools(list) {
   return { rules: rules.slice(0, 100), bad };
 }
 const cleanLanguage = (l) => (l === 'zh' ? 'zh' : 'en');
-const loadSettings = () => ({ ...DEFAULT_SETTINGS, ...readJson(settingsFile(), {}) });
+const LEGACY_JOBS_PER_WORKER = 1;
+const withLegacy = (saved) => (saved && Object.keys(saved).length && !('jobsPerWorker' in saved) ? { ...saved, jobsPerWorker: LEGACY_JOBS_PER_WORKER } : saved || {});
+// The jobs one worker account may run at once: the setting, never more than 3.
+const MAX_JOBS_PER_WORKER = 3;
+function jobsPerWorker(settings = loadSettings()) {
+  const n = Number(settings && settings.jobsPerWorker);
+  return Number.isFinite(n) && n >= 1 ? Math.min(Math.floor(n), MAX_JOBS_PER_WORKER) : MAX_JOBS_PER_WORKER;
+}
+// Seconds a background job may wait for a worker or its folder (Infinity = no limit; see backgroundMaxWaitMin).
+function backgroundWaitSec(settings = loadSettings()) {
+  if (process.env.RELAY_BG_WAIT_SEC) return Number(process.env.RELAY_BG_WAIT_SEC); // tests
+  const n = Number(settings && settings.backgroundMaxWaitMin);
+  return Number.isFinite(n) && n > 0 ? n * 60 : Infinity;
+}
+// The longest all of one job's post checks may take together (settings.json `postChecksMaxSec`, default 900 s).
+const POST_CHECKS_MAX_SEC = 900;
+function postChecksMaxSec(settings = loadSettings()) {
+  const n = Number(settings && settings.postChecksMaxSec);
+  return Number.isFinite(n) && n > 0 ? n : POST_CHECKS_MAX_SEC;
+}
+const loadSettings = () => ({ ...DEFAULT_SETTINGS, ...withLegacy(readJson(settingsFile(), {})) });
 const saveSettings = (patch) => mutate(settingsFile(), {}, (cur) => {
-  const next = { ...DEFAULT_SETTINGS, ...cur, ...patch };
+  const next = { ...DEFAULT_SETTINGS, ...withLegacy(cur), ...patch };
   next.language = cleanLanguage(next.language);
   return next;
 });
 
 module.exports = {
-  home, accountRoots, ownsConfigDir, load, save, get, upsert, remove, update, newAccount, isReady, cleanModel,
+  home, accountRoots, ownsConfigDir, codexRoot, isCodexArea, load, save, get, upsert, remove, update, newAccount, isReady, cleanModel, cleanEffort, EFFORTS,
+  PRIORITIES, PRIORITY_RANK, cleanPriority,
   markLimited, markNeedsLogin, markUsed, setDesktop, observeLeader, getLeaderSeen, rememberAccountUuid, emailForUuid, nextAvailable, earliestUnblock,
-  loadSettings, saveSettings, cleanAllowedTools, cleanPresets, choosePreset, SECURITY_PRESET, nowSec,
+  isWorker, TIERS, cleanTier, tierOf, backgroundWaitSec,
+  loadSettings, saveSettings, jobsPerWorker, MAX_JOBS_PER_WORKER, postChecksMaxSec, POST_CHECKS_MAX_SEC, cleanAllowedTools, cleanPresets, choosePreset, SECURITY_PRESET, nowSec,
 };

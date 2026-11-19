@@ -42,6 +42,9 @@ function putThread(cwd, name, data) {
 // ---- ledger ----
 function appendLedger(cwd, entry) {
   fs.mkdirSync(projectDir(cwd), { recursive: true });
+  // which folder this ledger belongs to (the folder name is a hash): the panel's "recent folders" list
+  const where = file(cwd, 'folder.json');
+  if (!fs.existsSync(where)) { try { fslock.writeJson(where, { cwd: path.resolve(cwd) }); } catch { /* only for the list */ } }
   fs.appendFileSync(file(cwd, 'ledger.jsonl'), `${JSON.stringify({ at: Date.now(), project: path.basename(path.resolve(cwd)), ...entry })}\n`);
 }
 function readLedger(cwd) {
@@ -70,14 +73,34 @@ function recentRuns(limit = 6) {
       text = buf.toString('utf8');
       if (n < size) text = text.slice(text.indexOf('\n') + 1); // drop the cut-off first line
     } catch { continue; }
-    for (const line of text.split('\n').filter(Boolean).slice(-limit)) {
+    const runs = [];
+    for (const line of text.split('\n').filter(Boolean)) {
       let e;
       try { e = JSON.parse(line); } catch { continue; }
-      out.push({
+      if (e.kind === 'ack') continue; // a flag resolved with relay_ack: not a run
+      runs.push({
         project: e.project || d.replace(/-[0-9a-f]{10}$/, ''), thread: e.thread || '', title: e.title || '',
         account: e.account || '', ok: e.ok !== false, at: Number(e.at) || 0,
+        ...(Array.isArray(e.flags) && e.flags.length ? { flags: e.flags } : {}), ...(e.jobId ? { jobId: String(e.jobId) } : {}),
       });
     }
+    out.push(...runs.slice(-limit));
+  }
+  return out.sort((a, b) => b.at - a.at).slice(0, limit);
+}
+// The project folders workers worked in, most recent first (from each ledger's folder.json), for the panel's dispatch
+// dialog: [{ cwd, at }]. Folders that no longer exist are left out.
+function recentProjects(limit = 15) {
+  const root = path.join(store.home(), 'projects');
+  let dirs = [];
+  try { dirs = fs.readdirSync(root); } catch { return []; }
+  const out = [];
+  for (const d of dirs) {
+    const meta = readJson(path.join(root, d, 'folder.json'), null);
+    if (!meta || !meta.cwd || !fs.existsSync(meta.cwd)) continue;
+    let at = 0;
+    try { at = fs.statSync(path.join(root, d, 'ledger.jsonl')).mtimeMs; } catch { /* no ledger yet */ }
+    out.push({ cwd: meta.cwd, at });
   }
   return out.sort((a, b) => b.at - a.at).slice(0, limit);
 }
@@ -88,13 +111,20 @@ const stamp = (ms) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
 function ledgerText(cwd, { sinceMs = 0, excludeThread = '', maxChars = 6000 } = {}) {
   const blocks = readLedger(cwd)
     .filter((e) => e.at > sinceMs && (!excludeThread || e.thread !== excludeThread))
-    .map((e) => [
-      `### ${stamp(e.at)} · thread "${e.thread || '(one-off)'}" · ${e.account || 'worker'}${e.ok === false ? ' · NOT FINISHED' : ''}`,
+    .map((e) => (e.kind === 'ack' ? [
+      `### ${stamp(e.at)} · flags resolved by the leader (relay_ack) · ${e.account || '?'}`,
       `Task: ${e.title}`,
       e.summary ? `Result: ${e.summary}` : '',
+    ] : [
+      `### ${stamp(e.at)} · thread "${e.thread || '(one-off)'}" · ${e.account || 'worker'}${e.ok === false ? ' · NOT FINISHED' : ''}${e.isolated ? ' · isolated' : ''}${Array.isArray(e.flags) && e.flags.length ? ` · ${e.flags.join(' · ')}` : ''}`,
+      `Task: ${e.title}`,
+      e.summary ? `Result: ${e.summary}` : '',
+      e.relaySummary ? `Status: ${e.relaySummary.status || '?'}${e.relaySummary.next_step ? ` · next: ${e.relaySummary.next_step}` : ''}${e.relaySummary.decisions_needed && e.relaySummary.decisions_needed.length ? ` · decisions needed: ${e.relaySummary.decisions_needed.join('; ')}` : ''}` : '',
+      e.outputFile ? `Report file: ${e.outputFile}` : '',
       e.files && e.files.length ? `Files touched: ${e.files.join(', ')}` : '',
+      e.concurrentChanges ? `Concurrent changes by other jobs (not attributed to this one): ${e.concurrentChanges} file${e.concurrentChanges === 1 ? '' : 's'}` : '',
       e.commands && e.commands.length ? `Commands run: ${e.commands.join(' | ')}` : '',
-    ].filter(Boolean).join('\n'));
+    ]).filter(Boolean).join('\n'));
   let text = blocks.join('\n\n');
   if (text.length > maxChars) text = `…(older entries omitted)\n${text.slice(-maxChars)}`;
   return text;
@@ -332,6 +362,7 @@ function acquireScopes(cwd, scopes, info = {}, { legacy = true } = {}) {
 }
 
 module.exports = {
+  recentProjects,
   projectDir, listThreads, getThread, putThread, appendLedger, readLedger, recentRuns, ledgerText,
   acquireLock, lockHolder, joinQueue, queue, releaseAll, writeRun, removeRun, listRuns, STALE_MS,
   acquireScopes, liveScopeLocks, overlaps, clash,

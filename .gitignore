@@ -1,4 +1,5 @@
-node_modules/
+# a file or a symlink too (a worktree may link node_modules to the main tree's)
+node_modules
 dist/
 *.log
 .DS_Store
@@ -8,3 +9,6 @@ Thumbs.db
 promo/
 
 .relay/
+
+# local scratch notes and probes, never part of the repository
+spike-codex/

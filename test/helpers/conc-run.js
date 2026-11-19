@@ -12,7 +12,7 @@ Object.assign(process.env, cfg.env);
       console.log(JSON.stringify({ ok: true }));
     } else {
       const { runWorker } = require('../../src/core/workers');
-      const r = await runWorker({ task: cfg.task, cwd: cfg.cwd, thread: cfg.thread || '', account: cfg.pin || '' });
+      const r = await runWorker({ task: cfg.task, cwd: cfg.cwd, thread: cfg.thread || '', account: cfg.pin || '', priority: cfg.priority || '' });
       console.log(JSON.stringify({ ok: r.ok, code: r.code, account: r.account || null, text: String(r.text).slice(0, 240) }));
     }
   } catch (e) {

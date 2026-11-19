@@ -6,7 +6,7 @@
 // with the number of running jobs next to it; clicking it drops the panel down under the icon, and clicking
 // anywhere else puts it away again, unless "Keep panel open" is ticked in the icon's right-click menu.
 
-const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, nativeTheme, shell, powerSaveBlocker, screen } = require('electron');
+const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, nativeTheme, shell, powerSaveBlocker, screen, dialog } = require('electron');
 const os = require('os');
 const path = require('path');
 const platform = require('./core/platform');
@@ -47,6 +47,23 @@ const MSG = {
   done: (n) => (isZh() ? [n.job.project, '已完成，回到原窗口即可查看'] : [n.job.project, 'Finished. Open the session as usual to see the result']),
   failed: (n) => (isZh() ? [n.job.project, '未能完成'] : [n.job.project, 'Could not be finished']),
   leader: (n, label) => (isZh() ? ['领队已切换', n.to ? `现在窗口用的是 ${label(n.to)}` : `现在窗口用的是号池外的账号 ${n.outside}`] : ['Leader changed', n.to ? `This window now uses ${label(n.to)}` : `This window now uses ${n.outside}, which is not in the pool`]),
+  // a background job (relay_start) finished
+  // a background job (relay_start) finished, or parked until a scheduled check (RELAY_PARK)
+  job: (n) => {
+    // a manual progress check ("Check progress" on a worker card, relay_wake) ended: its short report
+    if (n.check) {
+      const how = isZh() ? ({ 'parked again': '已再次挂起', finished: '已完成' }[n.check.outcome] || n.check.outcome) : n.check.outcome;
+      return isZh() ? [`进度检查 · ${n.title || n.project}`, `${n.check.short || '（没有报告）'}${how ? `（${how}）` : ''}`]
+        : [`Progress check · ${n.title || n.project}`, `${n.check.short || '(no report)'}${how ? ` (${how})` : ''}`];
+    }
+    const at = n.wakeAt ? new Date(n.wakeAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    if (n.state === 'parked') {
+      return isZh() ? [n.title || n.project, `已挂起，${at} 回来检查${n.account ? ` · ${n.account} 已空出` : ''}`] : [n.title || n.project, `Parked · wakes ${at}${n.account ? ` · ${n.account} is free meanwhile` : ''}`];
+    }
+    return isZh()
+      ? [n.title || n.project, `${n.ok ? '已完成' : n.state === 'cancelled' ? '已取消' : '未能完成'}${n.account ? ` · ${n.account}` : ''}`]
+      : [n.title || n.project, `${n.ok ? 'Finished' : n.state === 'cancelled' ? 'Cancelled' : 'Failed'}${n.account ? ` on ${n.account}` : ''}`];
+  },
   'needs-login': (n, label) => (isZh() ? ['需要重新登录', label(n.account)] : ['Sign-in needed', label(n.account)]),
 };
 
@@ -67,6 +84,7 @@ if (process.argv.includes('--disconnect')) {
   app.quit();
 } else {
   let win = null;
+  let picking = false; // the folder picker (dispatch dialog) is open: the panel must not hide on blur meanwhile
   let tray = null;
   let server = null;
   let quitting = false;
@@ -197,7 +215,7 @@ if (process.argv.includes('--disconnect')) {
     if (isMac) {
       // Like any menu-bar panel: clicking elsewhere puts it away (not while pinned, nor while DevTools has focus).
       win.on('blur', () => {
-        if (quitting || pinned() || win.webContents.isDevToolsFocused()) return;
+        if (quitting || picking || pinned() || win.webContents.isDevToolsFocused()) return;
         hiddenAt = Date.now();
         win.hide();
       });
@@ -245,6 +263,17 @@ if (process.argv.includes('--disconnect')) {
         setAutoStart,
         quit: () => { quitting = true; app.quit(); },
         onLanguage: () => { buildMenu(); setTooltip(); },
+        // the dispatch dialog's folder picker: a native folder chooser attached to the panel
+        pickFolder: async () => {
+          picking = true;
+          try {
+            const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], title: isZh() ? '选择项目文件夹' : 'Choose the project folder' });
+            return r.canceled ? '' : r.filePaths[0] || '';
+          } finally {
+            picking = false;
+            if (win && !win.isDestroyed()) win.show();
+          }
+        },
         // queued jobs are not counted as working: they have no worker yet
         onRuns: (runs) => { workerRuns = runs.filter((r) => r.status !== 'waiting').length; busyCount = (server?.takeovers.snapshot().active.length || 0) + workerRuns; setTooltip(); },
         notify: (n, accounts) => {

@@ -13,6 +13,14 @@ The tests use a fake `claude` (`test/fake-claude.js`), so they never use your qu
 
 To see the panel with throwaway demo accounts, run `node src/dev.js --demo`.
 
+## Working on Relay while you use it
+
+If your own Relay runs from your clone, don't edit that folder: Relay tool calls run its `src/` directly. Work in a
+second worktree on branch `dev` (`git worktree add ../relay-dev -b dev`), commit and test there, then move the live
+`main` forward with `scripts/promote-dev.sh` (tests, then fast-forward only). Restart the tray app with
+`scripts/restart-tray.sh` when the change touches the main process or the UI. Details:
+[docs/development.md](docs/development.md).
+
 ## Code style
 
 - Match the code around your change: CommonJS modules, `'use strict'`, single quotes, two-space indentation, and short comments that say *why*, not what.

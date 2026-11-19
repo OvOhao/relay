@@ -6,7 +6,10 @@
 //   relay login <name>        sign in again
 //   relay list                accounts and their state
 //   relay desktop <name>      mark the account your Claude desktop app is signed in to
-//   relay remove <name>
+//   relay remove <name>       (a Codex account's CODEX_HOME is left as it is)
+//   relay add-codex <name> <codexHome> --model <id>
+//                             register an existing Codex CLI login (CODEX_HOME=<codexHome> codex login) as a
+//                             read-only worker for relay_run's agent "codex"
 //   relay connect | disconnect       wire Relay into Claude Code (hooks, tool, skill) or take it out again
 //   relay remove-all [--logins]      disconnect; with --logins also delete every saved sign-in, profile and note
 
@@ -18,6 +21,7 @@ const hook = require('./core/hook');
 const connect = require('./core/connect');
 const platform = require('./core/platform');
 const { spawnClaude, accountEnv, authStatus } = require('./core/claude');
+const { getBackend } = require('./core/backends');
 
 const [cmd, ...rest] = process.argv.slice(2);
 const flag = (name) => {
@@ -67,9 +71,18 @@ async function main() {
       if (ok && flag('desktop')) { store.setDesktop(name); console.log(`  marked as your Claude desktop app account`); }
       break;
     }
+    case 'add-codex': {
+      const args = rest.filter((a, i) => !a.startsWith('--') && rest[i - 1] !== '--model');
+      const model = typeof flag('model') === 'string' ? flag('model') : '';
+      if (args.length < 2 || !model) throw new Error('usage: relay add-codex <name> <codexHome> --model <id>');
+      const r = await getBackend('codex').register({ name: args[0], codexHome: args[1], model });
+      console.log(`${r.loggedIn ? '✓' : '!'} ${r.name}: Codex account at ${r.configDir}, model ${r.model}${r.loggedIn ? '' : ` (not signed in: run CODEX_HOME="${r.configDir}" codex login)`}`);
+      break;
+    }
     case 'login': {
       const acct = store.get(rest[0]);
       if (!acct) throw new Error(`no account named "${rest[0]}" (see \`relay list\`)`);
+      if (acct.provider === 'codex') { console.log(`Sign in to a Codex account with: CODEX_HOME="${acct.configDir}" codex login`); break; }
       await runLogin(acct);
       break;
     }
@@ -78,7 +91,7 @@ async function main() {
       if (!accounts.length) return console.log('No accounts yet. Add one with `relay add`.');
       for (const a of accounts) {
         const state = a.needsLogin ? 'SIGN IN NEEDED' : a.blockedUntil > store.nowSec() ? `limited until ${fmt(a.blockedUntil)} (${a.blockedReason})` : 'ready';
-        console.log(`${a.desktop ? '★' : ' '} ${a.name.padEnd(12)} ${(a.email || '-').padEnd(34)} ${(a.plan || '-').padEnd(6)} ${state}`);
+        console.log(`${a.desktop ? '★' : ' '} ${a.name.padEnd(12)} ${(a.provider || 'claude').padEnd(6)} ${(a.email || '-').padEnd(34)} ${(a.plan || '-').padEnd(6)} ${state}${a.provider === 'codex' ? ` model ${a.model || '(none)'}` : ''}`);
       }
       console.log('\n★ = the account your Claude desktop app is signed in to');
       break;
@@ -92,11 +105,11 @@ async function main() {
     case 'remove': {
       const acct = store.get(rest[0]);
       if (!acct) throw new Error(`no account named "${rest[0]}"`);
-      const own = store.ownsConfigDir(acct.configDir);
+      const own = acct.provider !== 'codex' && store.ownsConfigDir(acct.configDir); // a Codex home is never deleted
       if (own) await platform.forgetLogin(acct); // macOS: the login lives in the Keychain, not in the folder
       store.remove(acct.name);
       if (own) setup.removeConfigDir(acct.configDir);
-      console.log(`removed ${acct.name}`);
+      console.log(`removed ${acct.name}${acct.provider === 'codex' ? ` (its Codex home ${acct.configDir} was left as it is)` : ''}`);
       break;
     }
     case 'connect': {
@@ -125,7 +138,7 @@ async function main() {
       break;
     }
     default:
-      console.log('relay add | login <name> | list | desktop <name> | remove <name> | connect | disconnect | remove-all | hook install|uninstall|status');
+      console.log('relay add | add-codex <name> <codexHome> --model <id> | login <name> | list | desktop <name> | remove <name> | connect | disconnect | remove-all | hook install|uninstall|status');
   }
 }
 

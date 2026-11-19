@@ -35,7 +35,7 @@ This window's account is the **leader**. Relay has other Claude accounts (**work
 - If the user says "use relay" or "/relay <job>", delegate that job.
 
 ## How to hand work over (workers cannot see this conversation)
-1. If you don't know who is available, call \`relay_status\` (pass \`cwd\`).
+1. If you don't know who is available, call \`relay_status\` (pass \`cwd\`). Call \`relay_help\` for the current parameters of every Relay tool: a conversation opened before a Relay update may show older tool descriptions, but every parameter \`relay_help\` lists works anyway (e.g. \`isolated\`, \`output_file\`, \`hide_paths\`, \`write_paths\`, \`priority\`).
 2. Call \`relay_run\` with:
    - **task**: complete and self-contained: the goal, what "done" looks like, how to verify (commands, tests).
    - **context**: what you know from this conversation that the worker doesn't: the user's goal in their own words, decisions already made, constraints and preferences, relevant files and paths, what was already tried.
@@ -45,12 +45,16 @@ This window's account is the **leader**. Relay has other Claude accounts (**work
    - **title**: 3-8 words saying what the job is; Relay shows it as the subtitle of the running job.
    - **preset** (optional): for security work (vulnerability analysis, attacks and defences, exploits in a test environment, prompt injection, red teaming, reward hacking, malware analysis) pass \`"security"\`: the worker then gets that research's real background in its system prompt. Relay also applies it by itself when the job's text matches the preset's keywords. Describe the task plainly and truthfully; a preset gives context, it does not lift any limit.
    - **scope** (optional): the folders the job will change, relative to cwd, e.g. \`["ideas/alpha"]\`. Several jobs run in one folder at the same time, each on its own free worker; two jobs whose scopes overlap run one after the other, so they never edit the same files at once. Give it whenever you know where a job writes.
+   - **priority** (optional): \`"high"\` for work that blocks the user or a gate, \`"low"\` for background chores; default \`"normal"\`. When every worker is busy, a freed worker goes to the highest priority, then the job waiting longest.
 3. When it returns, read the report, check the result cheaply yourself (look at the changed files, run the tests), then tell the user in their language what was done and **which worker account did it**.
 
 ## Use every worker
 - Split big work into independent jobs (different ideas, papers, modules) and give each its scope.
-- Start them together: call \`relay_run\` several times **in the same turn**, one per job. Each goes to a free worker; when every worker is busy, a job waits for the first one to come free.
+- Start them together: call \`relay_run\` several times **in the same turn**, one per job. Relay spreads them: every worker gets one job before any gets a second (at most 3 at once per worker); when every worker is full, a job waits for the first free slot.
 - Investigation and review jobs should be \`read_only\`: they never wait for other jobs and never block them.
+- To stay free while jobs run, use \`relay_start\` instead of \`relay_run\` (same parameters): it returns a job id at once and the job runs in the background. Keep talking with the user, then call \`relay_wait\` with the job ids: it returns as soon as one finishes (or all, with \`mode: "all"\`) with the full report. \`relay_poll\` shows where jobs are, \`relay_cancel\` stops one. Prefer this for several jobs or long ones; \`relay_run\` is fine for one short job.
+- \`relay_poll\`, \`relay_wait\` and \`relay_status\` start with a **Needs action** line listing the flags Relay raised (failed checks, protected paths changed, isolation breach...). Look into each one. When you have resolved a flag (fixed it, or proved it a false positive), record it with \`relay_ack\` (\`job_ids\`, \`resolution\`) so it leaves that line; never ack a flag you have not checked.
+- A parked job (its worker launched long-running work and checks back later) can be checked early: \`relay_wake\` (\`job_ids\`, or \`account\` for every job parked on that worker) wakes it now for a progress check; collect the report with \`relay_wait\`. The user can do the same with "Check progress" on a worker's card in Relay's panel, and can start jobs from the panel too (they show up in \`relay_poll\` with \`cwd\`).
 
 ## Memory
 - Workers share the user's CLAUDE.md files and project memory with you.
@@ -58,8 +62,9 @@ This window's account is the **leader**. Relay has other Claude accounts (**work
 
 ## When a worker is not available
 - \`NO_WORKER_AVAILABLE\`: every worker is at its limit (the reply says when the first is back). Tell the user in one sentence, then do the work yourself if it is reasonable, or offer to wait.
-- \`BUSY\`: every worker stayed busy, or another job kept changing the same files, for the whole waiting time. Retry later or do it yourself.
-- If a worker says a command or edit was refused by permissions, tell the user: they can allow more in Relay's settings.
+- \`BUSY\` (\`relay_run\` only, after 30 minutes): every worker stayed busy, or another job kept changing the same files, for the whole waiting time. Retry later, use \`relay_start\` (a background job waits as long as it takes and shows its place in line), or do it yourself.
+- If a worker says a command or edit was refused by permissions, tell the user: they can allow more in Relay's settings. \`relay_health\` (with \`cwd\`) checks every worker against the project's \`health_checks\` and workspace trust and gives the exact fix; a job header with HEALTH WARNING means no worker passed for a command the job needs.
+- A thread whose worker session fills its context is handed off to a new session with a handoff note by itself ("handed off (n)"): just keep using the same thread name.
 
 Never put passwords, tokens or other secrets into \`task\` or \`context\`.
 `;
@@ -152,17 +157,25 @@ async function removeAll({ logins = false } = {}) {
     }
     return { logins: false };
   }
+  // Codex homes were made outside Relay (`codex login`) and only registered: they are kept, also inside ~/.relay.
+  const keep = [store.codexRoot(), ...store.load().filter((a) => a.provider === 'codex').map((a) => a.configDir)].map((d) => path.resolve(d));
+  const holdsKept = (p) => keep.some((k) => k === path.resolve(p) || k.startsWith(path.resolve(p) + path.sep));
   for (const accountsRoot of store.accountRoots()) { // Relay's own, and any extra folders of sign-ins
     let names = [];
     try { names = fs.readdirSync(accountsRoot); } catch { /* nothing created yet */ }
     for (const n of names) {
       const dir = path.join(accountsRoot, n);
+      if (holdsKept(dir) || store.isCodexArea(dir)) continue;
       await platform.forgetLogin(store.newAccount(n, dir)); // macOS: drop its Keychain entry through Claude Code itself
       setup.removeConfigDir(dir);
     }
   }
   for (const extra of store.accountRoots().slice(1)) { try { fs.rmdirSync(extra); } catch { /* not empty, or gone */ } }
-  fs.rmSync(store.home(), { recursive: true, force: true });
+  let entries = [];
+  try { entries = fs.readdirSync(store.home()); } catch { /* gone already */ }
+  const kept = entries.filter((n) => holdsKept(path.join(store.home(), n)));
+  if (!kept.length) fs.rmSync(store.home(), { recursive: true, force: true });
+  else for (const n of entries) if (!kept.includes(n)) fs.rmSync(path.join(store.home(), n), { recursive: true, force: true });
   return { logins: true };
 }
 

@@ -8,8 +8,9 @@ const os = require('os');
 const path = require('path');
 const store = require('./store');
 const fslock = require('./fslock');
-const { spawnClaude, accountEnv, authStatus } = require('./claude');
+const { spawnClaude, accountEnv } = require('./claude');
 const { looksLikeAuthError } = require('./parse');
+const { backendFor } = require('./backends');
 
 const cacheFile = () => path.join(store.home(), 'usage.json');
 const MONTHS = 'jan feb mar apr may jun jul aug sep oct nov dec'.split(' ');
@@ -168,7 +169,11 @@ function refresh(name, opts = {}) {
 async function readOne(name, { recheck = false } = {}) {
   const acct = store.get(name);
   if (!acct || (acct.needsLogin && !recheck)) return null;
-  const res = await slot(() => fetchUsage(acct));
+  let backend;
+  try { backend = backendFor(acct); } catch (e) { // a provider this version of Relay cannot run: nothing to read
+    return updateCache(name, (prev) => ({ at: Date.now(), okAt: prev?.okAt || null, error: e.message, data: prev?.data || null }));
+  }
+  const res = await slot(() => backend.readUsage(acct));
   if (res.data) {
     applyTruth(acct, res.data);
     if (acct.needsLogin || acct.authFails) store.update(name, { needsLogin: false, authFails: 0 });
@@ -180,7 +185,7 @@ async function readOne(name, { recheck = false } = {}) {
   // access), so it counts as one strike like any other auth failure; "sign in needed" takes AUTH_STRIKES in a row.
   let signedOut = false;
   if (!res.authFailed && !res.timedOut) { // a reading cut short says nothing about the login
-    const info = await authStatus(acct);
+    const info = await backend.loginStatus(acct);
     signedOut = info.loggedIn === false && !info.error;
   }
   if (signedOut || res.authFailed) {
